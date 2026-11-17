@@ -44,11 +44,23 @@ O mapa precisa de WebGL (aceleração gráfica ligada no navegador).
 
 ## Caminho para dados reais
 
-1. **Empresas:** base aberta de CNPJs da Receita Federal, com o endereço de cada estabelecimento geocodificado.
-2. **Processos por CNPJ:** um serviço de dados judiciais com API. A chave fica só no servidor (`PROCESSOS_API_TOKEN`), nunca no navegador.
-3. **Filtros obrigatórios:** só pessoa jurídica, sem MEI, sem nomes de pessoas físicas, sem processos em segredo de justiça.
+Os scripts em `scripts/` montam os dados de uma cidade. Tudo fica em `dados-reais/`, que não vai para o git.
 
-Implemente `empresasReais()` em `server.js` devolvendo o mesmo formato de `gerarEmpresas()`.
+| Passo | Comando | O que faz |
+|---|---|---|
+| 1 | `node scripts/osm.mjs "Passo Fundo"` | Lojas e serviços com nome, do OpenStreetMap |
+| 2 | `node scripts/ruas.mjs "Passo Fundo"` | Traçado das ruas, para saber em que rua fica cada loja |
+| 3 | `scripts/receita.sh 2026-11 8785 dados-reais/receita-passo-fundo` | Filtra a base aberta de CNPJs da Receita para a cidade (~7 GB lidos em fluxo) |
+| 4 | `node scripts/casar.mjs dados-reais/osm-passo-fundo.json dados-reais/receita-passo-fundo` | Liga cada loja ao CNPJ e gera uma planilha de revisão manual |
+| 5 | `node scripts/djen.mjs dados-reais/casamento-passo-fundo.json --max 1000` | Busca os processos de graça no [DJEN](https://comunica.pje.jus.br) do CNJ (TJRS, TRT4 e TRF4, só a comarca da cidade), com cache por empresa |
+| 5′ | `node --env-file=.env scripts/processos.mjs …` | Alternativa paga ([BuscaProcessos](https://buscaprocessos.app.br)), com valor da causa e histórico completo |
+| 6 | `node scripts/cidade.mjs dados-reais/casamento-passo-fundo.json` | Junta tudo no formato do app |
+
+Depois, `npm start` e abra `http://localhost:5173/?modo=api`.
+
+**Sobre o DJEN:** a busca é pelo nome (razão social), conferido em cada publicação. Só aparecem processos com publicação no diário, ou seja, o histórico recente. Não há valor da causa nem assunto detalhado. Se isso não bastar, o plano B é a API do [Escavador](https://api.escavador.com/v2/docs/), que aceita cadastro com CPF e busca por CNPJ. Ela devolve o mesmo formato do BuscaProcessos, então só a função `consultar()` de `scripts/processos.mjs` muda.
+
+**Filtros aplicados:** só pessoa jurídica, sem MEI nem empresário individual, sem quadro societário, sem nomes ou CPFs de pessoas físicas. A chave da API fica só em variável de ambiente.
 
 ## Uso responsável
 

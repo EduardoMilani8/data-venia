@@ -14,23 +14,25 @@ const RAIZ = fileURLToPath(new URL(".", import.meta.url));
 const PORTA = Number(process.env.PORT) || 5173;
 const TIPOS = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml" };
 
-// Pipeline de dados reais, a implementar:
-//   1. Empresas por perto: base aberta de CNPJs da Receita Federal (endereço de cada
-//      estabelecimento), geocodificada uma vez e salva num banco com índice geográfico.
-//   2. Processos por CNPJ: serviço pago com API (Escavador, Judit, Digesto, Jusbrasil…).
-//      Guarde em cache: é caro e muda pouco.
-//   3. Filtre antes de devolver: só pessoas jurídicas, sem MEI, sem nomes de pessoas físicas,
-//      sem processos em segredo de justiça.
-// Formato esperado da resposta: o mesmo de js/dados/demo.js → gerarEmpresas().
+// Dados reais: gerados pelos scripts/ (osm → receita → casar → processos → cidade) e guardados em
+// dados-reais/cidade-*.json, que nunca vão para o git. A chave da API só é usada por scripts/processos.mjs;
+// este servidor apenas lê o resultado. Formato: o mesmo de js/dados/demo.js → gerarEmpresas().
+const RAIO_METROS = 2000;
+let cidades = null;
+async function carregarCidades() {
+  const { readdir } = await import("node:fs/promises");
+  const arquivos = (await readdir(join(RAIZ, "dados-reais")).catch(() => [])).filter((f) => /^cidade-.+\.json$/.test(f));
+  return (await Promise.all(arquivos.map((f) => readFile(join(RAIZ, "dados-reais", f), "utf8").then(JSON.parse)))).flat();
+}
 async function empresasReais(lat, lng) {
-  if (!process.env.PROCESSOS_API_TOKEN) {
-    const e = new Error("Defina PROCESSOS_API_TOKEN e implemente empresasReais() no server.js.");
+  cidades ??= await carregarCidades();
+  if (!cidades.length) {
+    const e = new Error("Nenhum dados-reais/cidade-*.json. Rode os scripts/ (veja o README).");
     e.status = 501;
     throw e;
   }
-  const e = new Error("empresasReais() ainda não foi implementada.");
-  e.status = 501;
-  throw e;
+  const kx = 111320 * Math.cos((lat * Math.PI) / 180);
+  return cidades.filter((e) => Math.hypot((e.lng - lng) * kx, (e.lat - lat) * 110540) <= RAIO_METROS);
 }
 
 createServer(async (req, res) => {
@@ -47,7 +49,9 @@ createServer(async (req, res) => {
   }
 
   const caminho = normalize(join(RAIZ, url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname)));
-  if (!caminho.startsWith(RAIZ)) return res.writeHead(403).end();
+  // Fora da pasta, dados brutos, scripts e arquivos ocultos (.env, .git) não são servidos.
+  const relativo = caminho.slice(RAIZ.length);
+  if (!caminho.startsWith(RAIZ) || /^(dados-reais|scripts|node_modules)(\/|$)|(^|\/)\./.test(relativo)) return res.writeHead(403).end();
   try {
     const corpo = await readFile(caminho);
     res.writeHead(200, { "content-type": TIPOS[extname(caminho)] || "application/octet-stream" }).end(corpo);

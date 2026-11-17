@@ -3,3 +3,6 @@ node_modules/
 .env.*
 .DS_Store
 *.log
+
+# Dados reais ficam só na máquina (ver README)
+dados-reais/

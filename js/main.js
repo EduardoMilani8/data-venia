@@ -106,8 +106,15 @@ function tingirMapa() {
 }
 
 // ---------- Dados → GeoJSON ----------
+// O mapa mede processos CONTRA a empresa. Quando ela é a autora (ex.: uma ótica cobrando o crediário
+// de clientes), o processo não diz nada de ruim sobre ela: fica à parte, na gaveta.
+// Polo desconhecido ("parte") conta junto, para não esconder o que não sabemos classificar.
+const ehAutora = (p) => p.polo === "autora";
 function processosVisiveis(e) {
-  return e.processos.filter((p) => estado.filtros.has(p.categoria));
+  return e.processos.filter((p) => !ehAutora(p) && estado.filtros.has(p.categoria));
+}
+function processosComoAutora(e) {
+  return e.processos.filter((p) => ehAutora(p) && estado.filtros.has(p.categoria));
 }
 
 function categoriaDominante(processos) {
@@ -316,7 +323,7 @@ function indiceDe(eid) { return estado.empresas.findIndex((e) => e.id === eid); 
 function abrirSelecionada() {
   const emp = estado.empresas[estado.selecionada];
   const vis = processosVisiveis(emp);
-  abrirGaveta(emp, vis, lerHistorico(vis), categoriaDominante(vis), desselecionar);
+  abrirGaveta(emp, vis, lerHistorico(vis), categoriaDominante(vis), desselecionar, processosComoAutora(emp));
 }
 
 function selecionar(eid) {
@@ -351,7 +358,7 @@ function desselecionar() {
 // ---------- Filtros, resumo, busca ----------
 function atualizarContagens() {
   const contagem = {};
-  for (const e of estado.empresas) for (const p of e.processos) contagem[p.categoria] = (contagem[p.categoria] || 0) + 1;
+  for (const e of estado.empresas) for (const p of e.processos) if (!ehAutora(p)) contagem[p.categoria] = (contagem[p.categoria] || 0) + 1;
   document.querySelectorAll("#filtros .chip").forEach((c) => (c.querySelector(".qtd").textContent = contagem[c.dataset.cat] || 0));
 }
 
@@ -444,7 +451,7 @@ function montarBusca() {
       .slice(0, 8);
     lista.innerHTML = achados.length
       ? achados.map((e) => `<button class="busca-item" role="option" data-eid="${e.id}">
-          <span><strong>${esc(e.nome)}</strong><small>${e.tipo}, ${e.processos.length} processo${e.processos.length === 1 ? "" : "s"}</small></span></button>`).join("")
+          <span><strong>${esc(e.nome)}</strong><small>${esc(e.tipo)}, ${(() => { const n = e.processos.filter((p) => !ehAutora(p)).length; return n ? `${n} processo${n === 1 ? "" : "s"} contra` : "nenhum processo contra"; })()}</small></span></button>`).join("")
       : `<div class="busca-item"><span>Nenhuma empresa com esse nome por perto.</span></div>`;
     lista.hidden = false;
   });
@@ -531,10 +538,15 @@ function circuloPrecisao(p) {
   return { type: "Feature", geometry: { type: "Polygon", coordinates: [coords] }, properties: {} };
 }
 
+// Acima disso a posição veio do Wi-Fi fraco ou do IP: vale avisar que no celular é melhor.
+const PRECISAO_FRACA = 300;
+const temMouse = matchMedia("(pointer: fine)").matches;
+
 function rotuloLocal() {
   const c = estado.centro, p = estado.posicao;
   const extra = p?.precisao ? `, precisão de ${formatarDistancia(p.precisao)}` : ", raio de 1 km";
-  document.getElementById("local-label").textContent = `${c.nome}${extra}`;
+  const dica = p?.precisao > PRECISAO_FRACA && temMouse ? ". No celular, com GPS, fica exato." : "";
+  document.getElementById("local-label").textContent = `${c.nome}${extra}${dica}`;
 }
 
 function atualizarPosicao(nova) {

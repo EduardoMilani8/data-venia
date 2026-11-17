@@ -20,7 +20,7 @@ export function fecharGaveta() {
 }
 
 // cat: categoria dominante ("consumidor", "trabalhista"…) ou "sem"; a cor vem do CSS do tema atual.
-export function abrirGaveta(emp, processos, leitura, cat, fecharCb) {
+export function abrirGaveta(emp, processos, leitura, cat, fecharCb, comoAutora = []) {
   aoFechar = fecharCb;
   const n = processos.length;
   const ativos = processos.filter((p) => p.ativo).length;
@@ -40,7 +40,7 @@ export function abrirGaveta(emp, processos, leitura, cat, fecharCb) {
     <div class="emp-placar">
       <div class="placar-num" data-alvo="${n}">0</div>
       <div class="placar-texto">
-        processo${n > 1 ? "s" : ""}, ${ativos} em andamento
+        processo${n > 1 ? "s" : ""} contra a empresa, ${ativos} em andamento
         <div class="barra-tipos" role="img" aria-label="${porTipo.map(([k, q]) => `${q} ${TIPOS_PROCESSO[k].nome}`).join(", ")}">
           ${porTipo.map(([k, q]) => `<span style="flex:${q};--cor:var(--${k})"></span>`).join("")}
         </div>
@@ -50,12 +50,14 @@ export function abrirGaveta(emp, processos, leitura, cat, fecharCb) {
     <ul class="lista-proc">
       ${processos.map((p, i) => cartao(p, i)).join("")}
     </ul>
-    <p class="aviso-partes">Nomes de pessoas físicas ficam ocultos. Ter processo não significa culpa: muitos são arquivados ou terminam em acordo.</p>
+    ${emp.totalProcessos > emp.processos?.length ? `<p class="aviso-partes">Mostrando os ${emp.processos.length} mais recentes de ${emp.totalProcessos.toLocaleString("pt-BR")} processos da empresa no país todo.</p>` : ""}
     ` : `
     <div class="vazio">
-      <p><strong>Nenhum processo encontrado.</strong></p>
-      <p>Nos tipos de processo selecionados, este CNPJ não aparece em nenhuma ação.</p>
+      <p><strong>Nenhum processo contra a empresa.</strong></p>
+      <p>Nos tipos de processo selecionados, este CNPJ não aparece como réu em nenhuma ação.</p>
     </div>`}
+    ${secaoAutora(comoAutora)}
+    ${n || comoAutora.length ? `<p class="aviso-partes">Nomes de pessoas físicas ficam ocultos. Ter processo não significa culpa: muitos são arquivados ou terminam em acordo.</p>` : ""}
   `;
 
   conteudo.querySelectorAll(".proc-botao").forEach((b) =>
@@ -75,6 +77,21 @@ export function abrirGaveta(emp, processos, leitura, cat, fecharCb) {
   gaveta.focus({ preventScroll: true });
 }
 
+// Processos em que a empresa é quem processa: cobranças, execuções, ações contra fornecedores.
+// Ficam recolhidos e numa cor neutra, porque não pesam contra ela. Lista longa é cortada.
+const AUTORA_VISIVEIS = 30;
+function secaoAutora(lista) {
+  if (!lista.length) return "";
+  const cobrancas = lista.filter((p) => /execu|cumprimento|cobran|monit/i.test(`${p.classe} ${p.assunto}`)).length;
+  const resumo = cobrancas >= lista.length / 2 ? ", a maioria cobranças" : "";
+  return `
+    <details class="como-autora">
+      <summary><strong>${lista.length}</strong> processo${lista.length > 1 ? "s" : ""} movido${lista.length > 1 ? "s" : ""} pela empresa${resumo}</summary>
+      <ul class="lista-proc">${lista.slice(0, AUTORA_VISIVEIS).map((p, i) => cartao(p, i)).join("")}</ul>
+      ${lista.length > AUTORA_VISIVEIS ? `<p class="aviso-partes">E mais ${lista.length - AUTORA_VISIVEIS}.</p>` : ""}
+    </details>`;
+}
+
 function cartao(p, i) {
   const t = TIPOS_PROCESSO[p.categoria];
   const movs = p.movimentacoes.slice(0, MOVIMENTOS_VISIVEIS);
@@ -83,20 +100,21 @@ function cartao(p, i) {
     <button class="proc-botao" aria-expanded="false">
       <div class="proc-topo">
         <span class="proc-tipo">${t.nome}</span>
-        <span class="status ${p.ativo ? "andamento" : "encerrado"}">${p.status}</span>
+        <span class="status ${p.ativo ? "andamento" : "encerrado"}">${esc(p.status)}</span>
       </div>
       <div class="proc-assunto">${esc(p.assunto)}</div>
     </button>
     <div class="proc-detalhe"><div><div class="proc-corpo">
-      <p class="proc-resumo">${esc(p.resumo)}</p>
+      ${p.resumo ? `<p class="proc-resumo">${esc(p.resumo)}</p>` : ""}
       <dl class="proc-fatos">
-        <div><dt>Início</dt><dd>${data.format(p.distribuicao)}</dd></div>
-        <div><dt>Valor da causa</dt><dd>${dinheiro.format(p.valor)}</dd></div>
+        ${p.distribuicao && !isNaN(p.distribuicao) ? `<div><dt>Início</dt><dd>${data.format(p.distribuicao)}</dd></div>` : ""}
+        ${p.valor != null ? `<div><dt>Valor da causa</dt><dd>${dinheiro.format(p.valor)}</dd></div>` : ""}
+        ${p.outraParte ? `<div><dt>${p.polo === "autora" ? "Contra" : p.polo === "ré" ? "Movido por" : "Outra parte"}</dt><dd>${esc(p.outraParte)}</dd></div>` : ""}
       </dl>
       <ol class="linha-tempo" aria-label="Últimas movimentações">
         ${movs.map((m) => `<li><time>${data.format(m.data)}</time>${esc(m.texto)}</li>`).join("")}
       </ol>
-      <div class="proc-num">${p.numero}, ${p.tribunal}${p.link ? ` · <a href="${esc(p.link)}" target="_blank" rel="noopener">abrir no tribunal</a>` : ""}</div>
+      <div class="proc-num">${esc(p.numero)}, ${esc(p.tribunal)}${p.link ? ` · <a href="${esc(p.link)}" target="_blank" rel="noopener">abrir no tribunal</a>` : ""}</div>
     </div></div></div>
   </li>`;
 }
