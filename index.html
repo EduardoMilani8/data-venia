@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Data Venia</title>
+  <meta name="description" content="Veja no mapa os processos judiciais das empresas perto de você." />
+  <meta name="theme-color" content="#0f1a2a" />
+  <script>
+    // Palpite rápido do tema antes de pintar a tela; o tema.js refina pelo pôr do sol do lugar.
+    (function () {
+      var p = "auto";
+      try { p = localStorage.getItem("data-venia-tema") || "auto"; } catch (e) {}
+      var h = new Date().getHours();
+      document.documentElement.dataset.tema = p !== "auto" ? p : (h >= 6 && h < 18 ? "claro" : "escuro");
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <link href="css/style.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="map" aria-label="Mapa das empresas próximas"></div>
+
+  <!-- Cortina da abertura -->
+  <div id="intro" class="intro" aria-hidden="true">
+    <div class="intro-inner">
+      <span class="intro-logo">Data Venia</span>
+      <span class="intro-sub" id="intro-status">Procurando onde você está…</span>
+    </div>
+  </div>
+
+  <!-- Topo: marca e busca -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>Data Venia</h1>
+        <p id="local-label">Empresas num raio de 1 km</p>
+      </div>
+    </div>
+    <label class="search">
+      <span class="visually-hidden">Buscar empresa</span>
+      <input id="busca" type="search" placeholder="Buscar empresa ou CNPJ" autocomplete="off" />
+    </label>
+    <div id="busca-resultados" class="busca-resultados" role="listbox" hidden></div>
+  </header>
+
+  <!-- Base: filtros por tarja -->
+  <nav class="filtros" aria-label="Filtrar por tipo de processo">
+    <div class="filtros-linha" id="filtros"></div>
+    <div class="filtros-acoes">
+      <button id="btn-calor" class="chip-acao" aria-pressed="false">Mapa de calor</button>
+      <button id="btn-centro" class="chip-acao" aria-label="Voltar para minha localização">Minha localização</button>
+      <button id="btn-tema" class="chip-acao" title="Automático segue o nascer e o pôr do sol">Tema automático</button>
+    </div>
+  </nav>
+
+  <!-- Resumo da região -->
+  <aside class="resumo" id="resumo" aria-live="polite"></aside>
+
+  <!-- Gaveta lateral: empresa e processos -->
+  <section id="gaveta" class="gaveta" aria-hidden="true" tabindex="-1">
+    <button class="gaveta-fechar" id="gaveta-fechar" aria-label="Fechar">×</button>
+    <div class="gaveta-alca" aria-hidden="true"></div>
+    <div id="gaveta-conteudo"></div>
+  </section>
+
+  <div class="selo-demo" id="selo-demo">Dados de demonstração: empresas e processos fictícios</div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
