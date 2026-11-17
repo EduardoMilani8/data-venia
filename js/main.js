@@ -149,6 +149,17 @@ function montarCamadas() {
     clusterProperties: { soma: ["+", ["get", "qtd"]] },
   });
 
+  // Círculo de precisão da sua posição (encolhe conforme o GPS melhora)
+  map.addSource("precisao", { type: "geojson", data: circuloPrecisao(estado.posicao) });
+  map.addLayer({
+    id: "precisao-area", type: "fill", source: "precisao",
+    paint: { "fill-color": v.cores.trabalhista, "fill-opacity": 0.1 },
+  });
+  map.addLayer({
+    id: "precisao-borda", type: "line", source: "precisao",
+    paint: { "line-color": v.cores.trabalhista, "line-opacity": 0.45, "line-width": 1.2 },
+  });
+
   map.addLayer({
     id: "calor", type: "heatmap", source: "empresas",
     layout: { visibility: estado.calor ? "visible" : "none" },
@@ -338,15 +349,19 @@ function desselecionar() {
 }
 
 // ---------- Filtros, resumo, busca ----------
-function montarFiltros() {
-  const caixa = document.getElementById("filtros");
+function atualizarContagens() {
   const contagem = {};
   for (const e of estado.empresas) for (const p of e.processos) contagem[p.categoria] = (contagem[p.categoria] || 0) + 1;
+  document.querySelectorAll("#filtros .chip").forEach((c) => (c.querySelector(".qtd").textContent = contagem[c.dataset.cat] || 0));
+}
 
+function montarFiltros() {
+  const caixa = document.getElementById("filtros");
   caixa.innerHTML = Object.entries(TIPOS_PROCESSO).map(([k, t]) => `
     <button class="chip" data-cat="${k}" aria-pressed="true" style="--cor:var(--${k})">
-      <span class="tarja"></span>${t.nome}<span class="qtd">${contagem[k] || 0}</span>
+      <span class="tarja"></span>${t.nome}<span class="qtd"></span>
     </button>`).join("");
+  atualizarContagens();
 
   caixa.addEventListener("click", (ev) => {
     const b = ev.target.closest(".chip");
@@ -376,7 +391,9 @@ function montarFiltros() {
   });
 
   document.getElementById("btn-centro").addEventListener("click", () => {
-    map.flyTo({ center: [estado.centro.lng, estado.centro.lat], zoom: 16.2, pitch: 55, bearing: -18, duration: 1600 });
+    const alvo = estado.posicao ?? estado.centro;
+    estado.mexeuNoMapa = false; // voltou para si: o refinamento pode acompanhar de novo
+    map.flyTo({ center: [alvo.lng, alvo.lat], zoom: 16.2, pitch: 55, bearing: -18, duration: 1600 });
   });
 
   tema.ligarBotao(document.getElementById("btn-tema"));
@@ -461,7 +478,8 @@ function pedirPosicao(opcoes) {
 async function ondeEstou({ ignorarUrl = false, aoDemorar } = {}) {
   const q = new URLSearchParams(location.search);
   if (!ignorarUrl && q.get("lat") && q.get("lng")) {
-    return { lat: +q.get("lat"), lng: +q.get("lng"), nome: q.get("origem") === "gps" ? "Perto de você" : "Ponto escolhido" };
+    const gps = q.get("origem") === "gps";
+    return { lat: +q.get("lat"), lng: +q.get("lng"), nome: gps ? "Perto de você" : "Ponto escolhido", deGps: gps };
   }
   if (!navigator.geolocation) return { ...CENTRO_PADRAO, falha: "Este navegador não oferece localização." };
 
@@ -469,18 +487,103 @@ async function ondeEstou({ ignorarUrl = false, aoDemorar } = {}) {
   try {
     let p;
     try {
-      p = await pedirPosicao({ enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+      p = await pedirPosicao({ enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
     } catch (e) {
       if (e.code === 1) throw e; // negado: não adianta insistir
       aoDemorar?.();
       p = await pedirPosicao({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
     }
-    return { lat: p.coords.latitude, lng: p.coords.longitude, nome: "Perto de você" };
+    return { lat: p.coords.latitude, lng: p.coords.longitude, precisao: p.coords.accuracy, nome: "Perto de você", deGps: true };
   } catch (e) {
     return { ...CENTRO_PADRAO, falha: MOTIVO_LOCAL[e.code] || `Não deu para usar sua localização (${e.message}).` };
   } finally {
     clearTimeout(demora);
   }
+}
+
+// ---------- Refinamento: abre com a posição aproximada e vai afinando pelo GPS ----------
+const PRECISAO_BOA = 25;           // metros: abaixo disso, para de procurar
+const TEMPO_REFINO = 60000;        // procura por no máximo 1 minuto (GPS gasta bateria)
+const DISTANCIA_RECENTRAR = 150;   // metros: se a posição real estiver mais longe que isso, refaz as empresas
+
+let marcadorVoce = null;
+
+function distanciaMetros(a, b) {
+  const r = Math.PI / 180;
+  const x = Math.sin(((b.lat - a.lat) * r) / 2) ** 2
+    + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lng - a.lng) * r) / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(x));
+}
+
+function formatarDistancia(m) {
+  return m < 1000 ? `${Math.max(5, Math.round(m / 5) * 5)} m` : `${(m / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km`;
+}
+
+// Círculo da precisão como polígono (o MapLibre não tem círculo em metros nativo).
+function circuloPrecisao(p) {
+  if (!p?.precisao) return { type: "FeatureCollection", features: [] };
+  const passos = 64, coords = [];
+  const mLat = 111320, mLng = 111320 * Math.cos((p.lat * Math.PI) / 180);
+  for (let i = 0; i <= passos; i++) {
+    const a = (i / passos) * 2 * Math.PI;
+    coords.push([p.lng + (p.precisao * Math.cos(a)) / mLng, p.lat + (p.precisao * Math.sin(a)) / mLat]);
+  }
+  return { type: "Feature", geometry: { type: "Polygon", coordinates: [coords] }, properties: {} };
+}
+
+function rotuloLocal() {
+  const c = estado.centro, p = estado.posicao;
+  const extra = p?.precisao ? `, precisão de ${formatarDistancia(p.precisao)}` : ", raio de 1 km";
+  document.getElementById("local-label").textContent = `${c.nome}${extra}`;
+}
+
+function atualizarPosicao(nova) {
+  estado.posicao = nova;
+  marcadorVoce?.setLngLat([nova.lng, nova.lat]);
+  map.getSource("precisao")?.setData(circuloPrecisao(nova));
+  rotuloLocal();
+}
+
+// Gera as empresas de novo ao redor da posição certa, sem recarregar a página.
+async function recentrar(nova) {
+  if (gavetaAberta()) desselecionar();
+  const empresas = await carregarEmpresas(nova);
+  estado.centro = { ...estado.centro, lat: nova.lat, lng: nova.lng };
+  estado.empresas = empresas;
+  estado.porId = new Map(empresas.map((e) => [e.id, e]));
+  estado.selecionada = null;
+  estado.hover = null;
+  map.removeFeatureState({ source: "empresas" });
+  map.getSource("empresas").setData(geojson());
+  atualizarContagens();
+  atualizarResumo();
+  // Só move a câmera se a pessoa não estiver explorando outra parte do mapa.
+  if (!estado.mexeuNoMapa && !estado.calor) {
+    map.flyTo({ center: [nova.lng, nova.lat], zoom: Math.max(map.getZoom(), 16.2), duration: calmo ? 0 : 1200, essential: true });
+  }
+}
+
+function refinarPosicao() {
+  if (!navigator.geolocation || !estado.centro.deGps) return;
+  let melhor = estado.posicao?.precisao ?? Infinity;
+  let recentrando = false;
+
+  const id = navigator.geolocation.watchPosition(async (p) => {
+    const nova = { lat: p.coords.latitude, lng: p.coords.longitude, precisao: p.coords.accuracy };
+    if (nova.precisao >= melhor) return; // só aceita posições melhores que a atual
+    melhor = nova.precisao;
+    atualizarPosicao(nova);
+    if (!recentrando && distanciaMetros(estado.centro, nova) > DISTANCIA_RECENTRAR) {
+      recentrando = true;
+      await recentrar(nova);
+      recentrando = false;
+    }
+    if (melhor <= PRECISAO_BOA) parar();
+  }, () => { /* falhas do refinamento são silenciosas: o app já está aberto com a posição aproximada */ },
+  { enableHighAccuracy: true, maximumAge: 0, timeout: TEMPO_REFINO });
+
+  const limite = setTimeout(() => parar(), TEMPO_REFINO);
+  function parar() { navigator.geolocation.clearWatch(id); clearTimeout(limite); }
 }
 
 // Mostra por que a localização falhou e deixa tentar de novo.
@@ -518,6 +621,7 @@ async function iniciar() {
     aoDemorar: () => (status.textContent = "Ainda procurando… o GPS pode levar alguns segundos."),
   });
   estado.centro = centro;
+  estado.posicao = centro.deGps ? { lat: centro.lat, lng: centro.lng, precisao: centro.precisao } : null;
   if (centro.falha) avisarFalhaLocal(centro.falha);
   status.textContent = "Abrindo os autos da vizinhança…";
 
@@ -542,13 +646,13 @@ async function iniciar() {
   ligarInteracoes();
   montarFiltros();
   montarBusca();
-  document.getElementById("local-label").textContent = `${centro.nome}, raio de 1 km`;
+  rotuloLocal();
   if (MODO !== "demo") document.getElementById("selo-demo").hidden = true;
 
   const voce = document.createElement("div");
   voce.className = "voce";
   voce.setAttribute("aria-label", "Você está aqui");
-  new maplibregl.Marker({ element: voce }).setLngLat([centro.lng, centro.lat]).addTo(map);
+  marcadorVoce = new maplibregl.Marker({ element: voce }).setLngLat([centro.lng, centro.lat]).addTo(map);
 
   // O momento de abertura: câmera desce do alto até a rua, em 3D.
   map.jumpTo({ center: [centro.lng, centro.lat], zoom: 3.2 });
@@ -560,6 +664,9 @@ async function iniciar() {
   map.once("moveend", () => {
     atualizarResumo();
     requestAnimationFrame(laco);
+    // Depois da abertura: se a pessoa arrastar o mapa, o refinamento não puxa mais a câmera.
+    map.on("dragstart", () => (estado.mexeuNoMapa = true));
+    refinarPosicao();
   });
 }
 
