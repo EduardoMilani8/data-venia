@@ -56,3 +56,7 @@ O app mostra contexto junto com cada número, oculta nomes de pessoas físicas e
 ## Créditos
 
 Mapa base © [OpenStreetMap](https://www.openstreetmap.org/copyright) e [CARTO](https://carto.com/attributions). Renderização com [MapLibre GL JS](https://maplibre.org/).
+
+## Licença
+
+[MIT](LICENSE)

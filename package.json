@@ -1,1 +1,1 @@
-{"type":"module","name":"data-venia","private":true,"scripts":{"start":"node server.js"}}
+{"type":"module","name":"data-venia","private":true,"license":"MIT","scripts":{"start":"node server.js"}}
