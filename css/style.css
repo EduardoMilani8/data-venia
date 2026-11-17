@@ -141,6 +141,21 @@ button { font: inherit; color: inherit; }
 .busca-item:hover, .busca-item:focus-visible { background: var(--superficie-hover); }
 .busca-item small { color: var(--texto-3); display: block; }
 
+/* ---------- Aviso de localização ---------- */
+.aviso-local {
+  padding: 12px 14px; border-radius: 14px; font-size: 13px;
+  background: var(--painel-forte); border: 1px solid var(--linha);
+  border-left: 3px solid var(--consumidor); box-shadow: var(--sombra);
+}
+.aviso-local p { margin: 0 0 10px; color: var(--texto-2); }
+.aviso-acoes { display: flex; gap: 8px; }
+.aviso-acoes button {
+  padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 13px;
+  background: var(--superficie); border: 1px solid var(--linha);
+}
+.aviso-acoes .aviso-tentar { background: var(--texto); color: var(--fundo); border-color: transparent; font-weight: 500; }
+.aviso-acoes button:disabled { opacity: 0.6; cursor: progress; }
+
 /* ---------- Filtros ---------- */
 .filtros {
   position: fixed; z-index: 10; left: 16px; bottom: 16px;
@@ -321,6 +336,7 @@ body.gaveta-aberta .resumo { opacity: 0; transform: translateY(-10px); pointer-e
   .gaveta-alca { display: block; width: 40px; height: 4px; border-radius: 9px; background: var(--linha); margin: 9px auto 0; }
   .filtros-linha, .filtros-acoes { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .selo-demo { top: 146px; bottom: auto; right: 16px; }
+  body.com-aviso-local .selo-demo { display: none; }
   .emp-nome { font-size: 23px; }
   .placar-num { font-size: 48px; }
 }

@@ -446,17 +446,67 @@ function montarBusca() {
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && gavetaAberta()) desselecionar(); });
 
 // ---------- Localização ----------
-function ondeEstou() {
+// O navegador diz exatamente por que falhou; cada motivo tem uma saída diferente para a pessoa.
+const MOTIVO_LOCAL = {
+  1: "O acesso à localização está bloqueado para este site. Libere nas permissões do navegador e tente de novo.",
+  2: "O aparelho não conseguiu descobrir onde você está. Confira se a localização do sistema está ligada.",
+  3: "A localização demorou demais para chegar. Em lugares fechados o GPS pode levar um tempo.",
+};
+
+function pedirPosicao(opcoes) {
+  return new Promise((ok, falha) => navigator.geolocation.getCurrentPosition(ok, falha, opcoes));
+}
+
+// Tenta primeiro o modo rápido (Wi-Fi e antenas). Se não der, liga o GPS de alta precisão.
+async function ondeEstou({ ignorarUrl = false, aoDemorar } = {}) {
   const q = new URLSearchParams(location.search);
-  if (q.get("lat") && q.get("lng")) return Promise.resolve({ lat: +q.get("lat"), lng: +q.get("lng"), nome: "Ponto escolhido" });
-  return new Promise((ok) => {
-    if (!navigator.geolocation) return ok(CENTRO_PADRAO);
-    navigator.geolocation.getCurrentPosition(
-      (p) => ok({ lat: p.coords.latitude, lng: p.coords.longitude, nome: "Perto de você" }),
-      () => ok({ ...CENTRO_PADRAO, nome: `${CENTRO_PADRAO.nome} (localização não permitida)` }),
-      { timeout: 7000, maximumAge: 60000 },
-    );
-  });
+  if (!ignorarUrl && q.get("lat") && q.get("lng")) {
+    return { lat: +q.get("lat"), lng: +q.get("lng"), nome: q.get("origem") === "gps" ? "Perto de você" : "Ponto escolhido" };
+  }
+  if (!navigator.geolocation) return { ...CENTRO_PADRAO, falha: "Este navegador não oferece localização." };
+
+  const demora = setTimeout(() => aoDemorar?.(), 4000);
+  try {
+    let p;
+    try {
+      p = await pedirPosicao({ enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    } catch (e) {
+      if (e.code === 1) throw e; // negado: não adianta insistir
+      aoDemorar?.();
+      p = await pedirPosicao({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    }
+    return { lat: p.coords.latitude, lng: p.coords.longitude, nome: "Perto de você" };
+  } catch (e) {
+    return { ...CENTRO_PADRAO, falha: MOTIVO_LOCAL[e.code] || `Não deu para usar sua localização (${e.message}).` };
+  } finally {
+    clearTimeout(demora);
+  }
+}
+
+// Mostra por que a localização falhou e deixa tentar de novo.
+function avisarFalhaLocal(motivo) {
+  const caixa = document.getElementById("aviso-local");
+  caixa.querySelector("p").textContent = `Mostrando o centro de São Paulo. ${motivo}`;
+  caixa.hidden = false;
+  document.body.classList.add("com-aviso-local");
+  const botao = caixa.querySelector(".aviso-tentar");
+  botao.onclick = async () => {
+    botao.disabled = true;
+    botao.textContent = "Procurando…";
+    const novo = await ondeEstou({ ignorarUrl: true });
+    if (novo.falha) {
+      caixa.querySelector("p").textContent = `Mostrando o centro de São Paulo. ${novo.falha}`;
+      botao.disabled = false;
+      botao.textContent = "Tentar de novo";
+      return;
+    }
+    // Recarrega com a posição achada: o app inteiro (empresas, sol, tema) é refeito a partir dela.
+    const url = new URL(location.href);
+    url.searchParams.set("lat", novo.lat.toFixed(5));
+    url.searchParams.set("lng", novo.lng.toFixed(5));
+    url.searchParams.set("origem", "gps");
+    location.replace(url);
+  };
 }
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -464,8 +514,11 @@ function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 // ---------- Início ----------
 async function iniciar() {
   const status = document.getElementById("intro-status");
-  const centro = await ondeEstou();
+  const centro = await ondeEstou({
+    aoDemorar: () => (status.textContent = "Ainda procurando… o GPS pode levar alguns segundos."),
+  });
   estado.centro = centro;
+  if (centro.falha) avisarFalhaLocal(centro.falha);
   status.textContent = "Abrindo os autos da vizinhança…";
 
   let empresas;

@@ -46,6 +46,13 @@
       <input id="busca" type="search" placeholder="Buscar empresa ou CNPJ" autocomplete="off" />
     </label>
     <div id="busca-resultados" class="busca-resultados" role="listbox" hidden></div>
+    <div id="aviso-local" class="aviso-local" role="status" hidden>
+      <p></p>
+      <div class="aviso-acoes">
+        <button type="button" class="aviso-tentar">Tentar de novo</button>
+        <button type="button" class="aviso-fechar" onclick="this.closest('.aviso-local').hidden = true; document.body.classList.remove('com-aviso-local')">Fechar</button>
+      </div>
+    </div>
   </header>
 
   <!-- Base: filtros por tarja -->
