@@ -58,6 +58,8 @@ Os scripts em `scripts/` montam os dados de uma cidade. Tudo fica em `dados-reai
 
 Depois, `npm start` e abra `http://localhost:5173/?modo=api`.
 
+**Modo ao vivo (`?modo=vivo`):** só os lugares vêm prontos. Os processos de cada loja são buscados no DJEN pelo próprio navegador quando alguém toca nela (`js/dados/aovivo.js`), com as mesmas regras de privacidade do lote (`js/dados/djen.js`). É o caminho para funcionar no país todo sem baixar processos de ninguém. O resultado fica guardado no navegador por um dia.
+
 **Sobre o DJEN:** a busca é pelo nome (razão social), conferido em cada publicação. Só aparecem processos com publicação no diário, ou seja, o histórico recente. Não há valor da causa nem assunto detalhado. Se isso não bastar, o plano B é a API do [Escavador](https://api.escavador.com/v2/docs/), que aceita cadastro com CPF e busca por CNPJ. Ela devolve o mesmo formato do BuscaProcessos, então só a função `consultar()` de `scripts/processos.mjs` muda.
 
 **Filtros aplicados:** só pessoa jurídica, sem MEI nem empresário individual, sem quadro societário, sem nomes ou CPFs de pessoas físicas. A chave da API fica só em variável de ambiente.

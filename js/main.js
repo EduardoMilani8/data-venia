@@ -1,7 +1,7 @@
-import { carregarEmpresas, MODO } from "./dados/provedor.js";
+import { carregarEmpresas, MODO, buscarAoVivo, prepararDatas, jaGuardadas, iniciarVarredura } from "./dados/provedor.js";
 import { TIPOS_PROCESSO } from "./dados/demo.js";
 import { lerHistorico } from "./classificacao.js";
-import { abrirGaveta, fecharGaveta, gavetaAberta } from "./gaveta.js";
+import { abrirGaveta, fecharGaveta, gavetaAberta, gavetaBuscando, gavetaFalhou } from "./gaveta.js";
 import { criarTema } from "./tema.js";
 
 const CENTRO_PADRAO = { lat: -23.5503, lng: -46.6339, nome: "Centro de São Paulo" };
@@ -136,6 +136,7 @@ function geojson() {
         properties: {
           eid: e.id, nome: e.nome, tipo: e.tipo,
           qtd: vis.length, cat: categoriaDominante(vis), nivel: vis.length ? lerHistorico(vis).nivel : 0,
+          pendente: e.consultado === false,   // modo ao vivo: ainda ninguém tocou nela, não sabemos os processos
         },
       };
     }),
@@ -209,10 +210,13 @@ function montarCamadas() {
     id: "pontos", type: "circle", source: "empresas", filter: ["!", ["has", "point_count"]],
     layout: { visibility: pinos },
     paint: {
-      "circle-color": corPorCategoria(),
+      // Modo ao vivo: loja ainda não consultada vira um anel vazado (fundo da cor do mapa, borda do texto),
+      // para ficar visível sem fingir que já sabemos a cor dos processos.
+      "circle-color": ["case", ["get", "pendente"], v.borda, corPorCategoria()],
       "circle-radius": raioPonto(1 - Math.pow(1 - estado.revelar, 3)),
       "circle-stroke-color": ["case",
         ["boolean", ["feature-state", "sel"], false], tema.atual === "claro" ? "#0f172a" : "#ffffff",
+        ["get", "pendente"], v.texto,
         v.borda],
       "circle-stroke-width": ["case", ["boolean", ["feature-state", "sel"], false], 3, 2],
       "circle-pitch-alignment": "viewport",
@@ -236,7 +240,7 @@ function montarCamadas() {
 function raioPonto(escala) {
   // O tamanho cresce com a quantidade de processos; "escala" anima o surgimento.
   return ["*", escala, ["+",
-    ["interpolate", ["linear"], ["get", "qtd"], 0, 4.5, 1, 8, 8, 13, 25, 19],
+    ["case", ["get", "pendente"], 8, ["interpolate", ["linear"], ["get", "qtd"], 0, 4.5, 1, 8, 8, 13, 25, 19]],
     ["case", ["boolean", ["feature-state", "hover"], false], 3, 0],
     ["case", ["boolean", ["feature-state", "sel"], false], 4, 0]]];
 }
@@ -322,8 +326,51 @@ function indiceDe(eid) { return estado.empresas.findIndex((e) => e.id === eid); 
 
 function abrirSelecionada() {
   const emp = estado.empresas[estado.selecionada];
+  if (emp.consultado === false) return consultarAoVivo(emp);
   const vis = processosVisiveis(emp);
   abrirGaveta(emp, vis, lerHistorico(vis), categoriaDominante(vis), desselecionar, processosComoAutora(emp));
+}
+
+// ---------- Modo ao vivo ----------
+// Resultado chegou (de um clique, da varredura ou do guardado no navegador): a loja ganha cor.
+// Vários resultados no mesmo quadro viram um redesenho só.
+let redesenhoPendente = false;
+function aplicarResultado(emp, { processos, totalProcessos }) {
+  if (emp.consultado !== false) return;
+  Object.assign(emp, { processos: prepararDatas(processos), totalProcessos, consultado: true });
+  if (redesenhoPendente) return;
+  redesenhoPendente = true;
+  requestAnimationFrame(() => {
+    redesenhoPendente = false;
+    map.getSource("empresas")?.setData(geojson());
+    atualizarContagens();
+    atualizarResumo();
+  });
+}
+
+let pararVarredura = null;
+function comecarVarredura() {
+  pararVarredura?.();
+  for (const [e, dados] of jaGuardadas(estado.empresas)) aplicarResultado(e, dados);
+  estado.varredura = "rodando";
+  pararVarredura = iniciarVarredura(estado.empresas, estado.centro, aplicarResultado, () => {
+    estado.varredura = "parada";
+    atualizarResumo();
+  });
+}
+
+// A gaveta abre já, mostrando o andamento, e se preenche quando o DJEN responder.
+// Se a pessoa trocar de loja no meio, o resultado ainda é guardado na empresa certa e pinta o mapa.
+async function consultarAoVivo(emp) {
+  const aindaEla = () => estado.selecionada != null && estado.empresas[estado.selecionada] === emp;
+  const avisar = (texto) => aindaEla() && gavetaBuscando(emp, texto, desselecionar);
+  avisar("Procurando processos no Diário de Justiça…");
+  try {
+    aplicarResultado(emp, await buscarAoVivo(emp, { aoProgresso: avisar, aoAviso: avisar }));
+    if (aindaEla()) abrirSelecionada();
+  } catch (err) {
+    if (aindaEla()) gavetaFalhou(emp, err.message, desselecionar, () => consultarAoVivo(emp));
+  }
 }
 
 function selecionar(eid) {
@@ -432,9 +479,31 @@ function atualizarResumo() {
       <div><div class="num" data-k="proc">0</div><div class="rot">processos</div></div>`;
   }
   const vis = estado.empresas.map(processosVisiveis);
+  if (MODO === "vivo") mostrarVarredura(caixa);
   contarAte(caixa.querySelector('[data-k="emp"]'), estado.empresas.length);
   contarAte(caixa.querySelector('[data-k="com"]'), vis.filter((v) => v.length).length);
   contarAte(caixa.querySelector('[data-k="proc"]'), vis.reduce((s, v) => s + v.length, 0));
+}
+
+// Modo ao vivo: quantas lojas ainda não foram consultadas. O anel é a mesma marca do mapa,
+// então esta linha também serve de legenda.
+function mostrarVarredura(caixa) {
+  let linha = caixa.querySelector(".varredura");
+  if (!linha) {
+    caixa.insertAdjacentHTML("beforeend", `
+      <div class="varredura">
+        <span class="anel" aria-hidden="true"></span><span class="varredura-texto"></span>
+        <span class="varredura-barra" aria-hidden="true"><i></i></span>
+      </div>`);
+    linha = caixa.querySelector(".varredura");
+  }
+  const total = estado.empresas.length;
+  const faltam = estado.empresas.filter((e) => e.consultado === false).length;
+  linha.classList.toggle("completa", faltam === 0);
+  linha.querySelector(".varredura-texto").textContent = faltam === 0
+    ? `Todas as ${total} lojas consultadas no DJEN`
+    : `${total - faltam} de ${total} lojas consultadas${estado.varredura === "rodando" ? ", das mais próximas para as mais longe" : ""}. O anel marca as que faltam.`;
+  linha.querySelector(".varredura-barra i").style.width = `${((total - faltam) / Math.max(1, total)) * 100}%`;
 }
 
 function montarBusca() {
@@ -567,6 +636,7 @@ async function recentrar(nova) {
   estado.hover = null;
   map.removeFeatureState({ source: "empresas" });
   map.getSource("empresas").setData(geojson());
+  if (MODO === "vivo") comecarVarredura();
   atualizarContagens();
   atualizarResumo();
   // Só move a câmera se a pessoa não estiver explorando outra parte do mapa.
@@ -660,6 +730,7 @@ async function iniciar() {
   montarBusca();
   rotuloLocal();
   if (MODO !== "demo") document.getElementById("selo-demo").hidden = true;
+  if (MODO === "vivo") comecarVarredura();
 
   const voce = document.createElement("div");
   voce.className = "voce";

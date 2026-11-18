@@ -186,6 +186,14 @@ button { font: inherit; color: inherit; }
 .resumo .num { font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1; font-variant-numeric: tabular-nums; }
 .resumo .rot { font-size: 12px; color: var(--texto-2); }
 .resumo:empty { display: none; }
+/* Modo ao vivo: progresso da consulta; o anel repete a marca das lojas não consultadas no mapa */
+.resumo:has(.varredura) { flex-wrap: wrap; max-width: 330px; }
+.varredura { flex-basis: 100%; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px 8px; font-size: 12px; color: var(--texto-2); }
+.varredura .anel { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--texto); background: var(--fundo); }
+.varredura-barra { grid-column: 1 / -1; height: 3px; border-radius: 3px; background: var(--linha); overflow: hidden; }
+.varredura-barra i { display: block; height: 100%; background: var(--trabalhista); transition: width 600ms var(--ease); }
+.varredura.completa .anel, .varredura.completa .varredura-barra { display: none; }
+.varredura.completa { grid-template-columns: 1fr; }
 body.gaveta-aberta .resumo { opacity: 0; transform: translateY(-10px); pointer-events: none; }
 
 /* ---------- Gaveta ---------- */
@@ -297,6 +305,22 @@ body.gaveta-aberta .resumo { opacity: 0; transform: translateY(-10px); pointer-e
 .vazio p { margin: 0 0 8px; }
 
 .aviso-partes { margin: 4px 22px 24px; font-size: 12px; color: var(--texto-3); }
+
+/* Modo ao vivo: enquanto o DJEN responde */
+.buscando { display: flex; align-items: center; gap: 12px; padding: 10px 22px 28px; color: var(--texto-2); }
+.buscando-texto { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.buscando-roda {
+  flex: none; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--linha); border-top-color: var(--trabalhista);
+  animation: girar 0.9s linear infinite;
+}
+@keyframes girar { to { transform: rotate(360deg); } }
+.tentar {
+  margin-top: 6px; padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  background: var(--fundo); border: 1px solid var(--linha); color: var(--texto);
+}
+.tentar:focus-visible { outline: 2px solid var(--trabalhista); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .buscando-roda { animation-duration: 2.4s; } }
 
 /* ---------- Selo de demonstração ---------- */
 .selo-demo {

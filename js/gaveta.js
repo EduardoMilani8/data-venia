@@ -19,6 +19,47 @@ export function fecharGaveta() {
   gaveta.setAttribute("aria-hidden", "true");
 }
 
+function cabeca(emp, cat) {
+  return `
+    <header class="emp-cabeca" style="--cor:var(--${cat})">
+      <div class="emp-tipo">${esc(emp.tipo)}</div>
+      <h2 class="emp-nome">${esc(emp.nome)}</h2>
+      <div class="emp-cnpj">CNPJ ${esc(emp.cnpj)}</div>
+    </header>`;
+}
+
+function mostrar() {
+  gaveta.classList.add("aberta");
+  gaveta.setAttribute("aria-hidden", "false");
+}
+
+// Modo ao vivo: a gaveta abre na hora e vai contando o que está consultando.
+// Chamada várias vezes durante a busca; da segunda em diante só troca o texto.
+export function gavetaBuscando(emp, texto, fecharCb) {
+  aoFechar = fecharCb;
+  const atual = conteudo.querySelector(`.buscando[data-emp="${CSS.escape(emp.id)}"] .buscando-texto`);
+  if (atual) { atual.textContent = texto; return; }
+  conteudo.innerHTML = `${cabeca(emp, "sem")}
+    <div class="buscando" data-emp="${esc(emp.id)}" role="status">
+      <span class="buscando-roda" aria-hidden="true"></span>
+      <p class="buscando-texto">${esc(texto)}</p>
+    </div>`;
+  mostrar();
+  gaveta.scrollTop = 0;
+}
+
+export function gavetaFalhou(emp, motivo, fecharCb, tentarDeNovo) {
+  aoFechar = fecharCb;
+  conteudo.innerHTML = `${cabeca(emp, "sem")}
+    <div class="vazio">
+      <p><strong>Não deu para consultar os processos agora.</strong></p>
+      <p>${esc(motivo)}</p>
+      <button class="tentar">Tentar de novo</button>
+    </div>`;
+  conteudo.querySelector(".tentar").addEventListener("click", tentarDeNovo);
+  mostrar();
+}
+
 // cat: categoria dominante ("consumidor", "trabalhista"…) ou "sem"; a cor vem do CSS do tema atual.
 export function abrirGaveta(emp, processos, leitura, cat, fecharCb, comoAutora = []) {
   aoFechar = fecharCb;
@@ -29,12 +70,7 @@ export function abrirGaveta(emp, processos, leitura, cat, fecharCb, comoAutora =
     .map((k) => [k, processos.filter((p) => p.categoria === k).length])
     .filter(([, q]) => q);
 
-  conteudo.innerHTML = `
-    <header class="emp-cabeca" style="--cor:var(--${cat})">
-      <div class="emp-tipo">${esc(emp.tipo)}</div>
-      <h2 class="emp-nome">${esc(emp.nome)}</h2>
-      <div class="emp-cnpj">CNPJ ${esc(emp.cnpj)}</div>
-    </header>
+  conteudo.innerHTML = `${cabeca(emp, cat)}
 
     ${n ? `
     <div class="emp-placar">
@@ -71,8 +107,7 @@ export function abrirGaveta(emp, processos, leitura, cat, fecharCb, comoAutora =
   const num = conteudo.querySelector(".placar-num");
   if (num) contar(num, n);
 
-  gaveta.classList.add("aberta");
-  gaveta.setAttribute("aria-hidden", "false");
+  mostrar();
   gaveta.scrollTop = 0;
   gaveta.focus({ preventScroll: true });
 }

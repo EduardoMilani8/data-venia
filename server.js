@@ -40,7 +40,9 @@ createServer(async (req, res) => {
 
   if (url.pathname === "/api/empresas") {
     try {
-      const dados = await empresasReais(Number(url.searchParams.get("lat")), Number(url.searchParams.get("lng")));
+      let dados = await empresasReais(Number(url.searchParams.get("lat")), Number(url.searchParams.get("lng")));
+      // Modo ao vivo: só os lugares (nome, CNPJ, posição, como buscar). Os processos o navegador busca no DJEN.
+      if (url.searchParams.has("so-lugares")) dados = dados.filter((e) => e.busca).map(({ processos, totalProcessos, ...e }) => ({ ...e, consultado: false, processos: [] }));
       res.writeHead(200, { "content-type": TIPOS[".json"] }).end(JSON.stringify(dados));
     } catch (err) {
       res.writeHead(err.status || 500, { "content-type": TIPOS[".json"] }).end(JSON.stringify({ erro: err.message }));
