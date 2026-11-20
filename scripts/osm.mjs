@@ -1,14 +1,16 @@
 // Passo 1 dos dados reais: lojas, restaurantes e serviços de uma cidade, direto do OpenStreetMap.
-// Uso: node scripts/osm.mjs "Passo Fundo"
+// Uso: node scripts/osm.mjs "Passo Fundo" [RS]
 // Saída: dados-reais/osm-<cidade>.json
 
 import { writeFile, mkdir } from "node:fs/promises";
-import net from "node:net";
-
-// O Node dá só 250 ms para cada endereço do servidor responder; em conexões lentas isso não basta.
-net.setDefaultAutoSelectFamilyAttemptTimeout(3000);
+import { perguntar } from "./overpass.mjs";
 
 const cidade = process.argv[2] || "Passo Fundo";
+// UF opcional: há nomes de cidade repetidos entre estados (ex.: "Bom Jesus"). Com ela, só vale a do estado.
+const uf = process.argv[3];
+const AREA = uf
+  ? `area["ISO3166-2"="BR-${uf}"]->.uf;\nrel(area.uf)["name"="${cidade}"]["boundary"="administrative"]["admin_level"="8"];\nmap_to_area->.cidade;`
+  : `area["name"="${cidade}"]["boundary"="administrative"]["admin_level"="8"]->.cidade;`;
 const slug = cidade.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, "-");
 
 // Tipos de lugar que costumam ser empresas com CNPJ.
@@ -16,7 +18,7 @@ const AMENIDADES = "restaurant|cafe|fast_food|bar|pub|pharmacy|bank|ice_cream|fu
 
 const consulta = `
 [out:json][timeout:120];
-area["name"="${cidade}"]["boundary"="administrative"]["admin_level"="8"]->.cidade;
+${AREA}
 (
   nwr(area.cidade)["shop"]["name"];
   nwr(area.cidade)["amenity"~"^(${AMENIDADES})$"]["name"];
@@ -27,13 +29,7 @@ area["name"="${cidade}"]["boundary"="administrative"]["admin_level"="8"]->.cidad
 );
 out center tags;`;
 
-const r = await fetch("https://overpass-api.de/api/interpreter", {
-  method: "POST",
-  headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "data-venia/0.1 (projeto pessoal)" },
-  body: "data=" + encodeURIComponent(consulta),
-});
-if (!r.ok) throw new Error(`Overpass respondeu ${r.status}: ${(await r.text()).slice(0, 300)}`);
-const { elements } = await r.json();
+const { elements } = await perguntar(consulta);
 
 const lugares = elements.map((e) => {
   const t = e.tags;

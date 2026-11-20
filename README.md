@@ -46,6 +46,8 @@ O mapa precisa de WebGL (aceleração gráfica ligada no navegador).
 
 Os scripts em `scripts/` montam os dados de uma cidade. Tudo fica em `dados-reais/`, que não vai para o git.
 
+**Atalho para uma cidade nova (modo ao vivo):** `scripts/nova-cidade.sh "Carazinho" RS` roda os passos 1–4 e 6 em sequência, acha sozinho o código do município na Receita e pula o que já foi feito. Não baixa processos: eles vêm do DJEN no navegador, com `?modo=vivo`.
+
 | Passo | Comando | O que faz |
 |---|---|---|
 | 1 | `node scripts/osm.mjs "Passo Fundo"` | Lojas e serviços com nome, do OpenStreetMap |
