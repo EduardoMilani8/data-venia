@@ -34,30 +34,42 @@ export const pareceEmpresa = (nome) => PJ.test(` ${semAcento(nome || "").toUpper
 const CLASSE_FISCAL = /EXECU[CÇ][AÃ]O FISCAL/i, JUIZADO = /JUIZADO ESPECIAL/i;
 const POLO = { P: "PASSIVO", A: "ATIVO" };
 const mesesAtras = (data) => (Date.now() - new Date(data)) / (30.44 * 864e5);
+// Link oficial do documento publicado, só se for HTTPS num site da Justiça (*.jus.br).
+function linkOficial(u) {
+  try { const url = new URL(u); return url.protocol === "https:" && /(^|\.)jus\.br$/.test(url.hostname) ? url.href : null; } catch { return null; }
+}
 
 // Busca uma empresa em todos os tribunais e devolve os processos no formato comum
 // ({numero_cnj, fontes:[{sigla, capa, envolvidos…}]}), o mesmo dos fornecedores pagos.
 // pedir(params) → resposta JSON da API; quem chama decide como esperar, repetir e identificar-se.
 // emParalelo: consultar os tribunais ao mesmo tempo. O navegador usa (uma empresa grande cai de ~40 s
 // para ~15 s); o lote não, porque várias empresas seguidas em paralelo estouram os 20 pedidos/min.
-export async function consultarEmpresa({ razao, cnpj, comarca, tribunais }, pedir, aoProgresso, { emParalelo = false } = {}) {
+// paginas: até quantas páginas ler por tribunal. "cortado" avisa que havia mais e o resultado está incompleto.
+// rapida: um pedido só, sem escolher tribunal (o DJEN devolve de todos), filtrado aqui pelos tribunais
+// da cidade. Para a maioria das lojas (menos de 100 publicações) já é o resultado completo, com 1 pedido
+// em vez de 3. É o que a varredura do navegador usa para colorir o mapa.
+export async function consultarEmpresa({ razao, cnpj, comarca, tribunais }, pedir, aoProgresso, { emParalelo = false, paginas = PAGINAS, rapida = false } = {}) {
+  let cortado = false;
   const alvo = normalNome(razao);
   const porProcesso = new Map();
   let publicacoes = 0, descartadas = 0, foraDaComarca = 0, feitos = 0;
-  async function lerTribunal(tribunal) {
-    for (let pagina = 1; pagina <= PAGINAS; pagina++) {
-      const r = await pedir({ nomeParte: alvo, siglaTribunal: tribunal, itensPorPagina: 100, pagina });
+  async function lerTribunal(tribunal) {   // tribunal null = todos de uma vez (modo rápido)
+    for (let pagina = 1; pagina <= paginas; pagina++) {
+      const r = await pedir({ nomeParte: alvo, ...(tribunal && { siglaTribunal: tribunal }), itensPorPagina: 100, pagina });
       aoProgresso?.({ tribunal, pagina, pedidos: ++feitos });
       const itens = r.items || [];
       for (const it of itens) {
         publicacoes++;
         // Só conta quando a empresa é PARTE (destinatária). Mencionada só no texto, ela costuma ser
         // terceira (ex.: empregadora mandada descontar pensão de alguém) ou é um sobrenome comum.
+        if (!tribunais.includes(it.siglaTribunal)) continue;   // modo rápido: tribunal de outro estado
         if (!ehParte(it, alvo)) { descartadas++; continue; }
         if (comarca && !semAcento(it.nomeOrgao || "").toUpperCase().includes(comarca)) { foraDaComarca++; continue; }
         const numero = it.numeroprocessocommascara || it.numero_processo;
         const p = porProcesso.get(numero) || { numero, tribunal: it.siglaTribunal, classe: it.nomeClasse, orgao: it.nomeOrgao, datas: [], partes: new Map() };
         p.datas.push(it.data_disponibilizacao);
+        // Guarda o link da publicação mais recente: é o documento que prova o processo.
+        if (!p.ultima || it.data_disponibilizacao >= p.ultima) { p.ultima = it.data_disponibilizacao; p.link = linkOficial(it.link) || p.link; }
         for (const d of it.destinatarios || []) {
           const daEmpresa = normalNome(d.nome) === alvo;
           const chave = daEmpresa ? "__empresa" : normalNome(d.nome);
@@ -69,9 +81,11 @@ export async function consultarEmpresa({ razao, cnpj, comarca, tribunais }, pedi
         porProcesso.set(numero, p);
       }
       if (itens.length < 100) break;
+      if (pagina === paginas) cortado = true;
     }
   }
-  if (emParalelo) await Promise.all(tribunais.map(lerTribunal));
+  if (rapida) await lerTribunal(null);
+  else if (emParalelo) await Promise.all(tribunais.map(lerTribunal));
   else for (const t of tribunais) await lerTribunal(t);
   const processos = [...porProcesso.values()].map((p) => {
     const datas = p.datas.sort();
@@ -82,7 +96,7 @@ export async function consultarEmpresa({ razao, cnpj, comarca, tribunais }, pedi
       data_ultima_movimentacao: datas.at(-1), quantidade_movimentacoes: datas.length,
       fontes: [{
         sigla: p.tribunal.replace(/^(TRT|TRF)(\d)/, "$1-$2"), grau: /TURMA|C[AÂ]MARA|GABINETE/i.test(p.orgao || "") ? 2 : 1,
-        segredo_justica: false, arquivado: null, status_predito: recente ? "ATIVO" : "INATIVO", url: null,
+        segredo_justica: false, arquivado: null, status_predito: recente ? "ATIVO" : "INATIVO", url: p.link || null,
         capa: {
           classe: p.classe, assunto: null, assuntos: [], materias: [],
           area: trabalhista ? "TRABALHISTA" : CLASSE_FISCAL.test(p.classe) ? "TRIBUTARIO" : JUIZADO.test(p.classe) ? "CONSUMIDOR" : null,
@@ -93,5 +107,5 @@ export async function consultarEmpresa({ razao, cnpj, comarca, tribunais }, pedi
       }],
     };
   });
-  return { processos, publicacoes, descartadas, foraDaComarca, pedidos: feitos };
+  return { processos, publicacoes, descartadas, foraDaComarca, pedidos: feitos, cortado };
 }

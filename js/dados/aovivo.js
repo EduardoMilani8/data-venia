@@ -9,7 +9,7 @@
 // Uma empresa pequena custa 3 pedidos (um por tribunal); uma grande, até 15. O resultado já
 // convertido fica guardado neste navegador por um dia, para não gastar o limite de novo.
 
-import { API_DJEN, consultarEmpresa } from "./djen.js";
+import { API_DJEN, PAGINAS, consultarEmpresa } from "./djen.js";
 import { converterProcesso, maisRecentes } from "./converter.js";
 
 const VALIDADE_MS = 24 * 3600 * 1000;
@@ -24,8 +24,8 @@ const JANELA_MS = 60_000;
 const TETO = { clique: 19, fundo: 10 };
 const momentos = [];
 let cliquesEmAndamento = 0;
-// busca.tipo pode mudar no meio: se alguém toca na loja que a varredura está consultando,
-// aquela busca vira clique (senão o clique esperaria a varredura, e a varredura, o clique).
+// O clique nunca espera uma busca da varredura: cada um tem a sua (profundidades diferentes),
+// e a da varredura fica congelada enquanto houver clique.
 async function aguardarVez(busca, aoAviso) {
   for (;;) {
     const agora = Date.now(), tipo = busca.tipo;
@@ -62,7 +62,9 @@ function criarPedir(busca) {
 }
 
 // ---------- Guardado neste navegador ----------
-const chave = (basico) => `data-venia:djen:${basico}`;
+// v2: os resultados passaram a trazer o link do documento no tribunal.
+// "parcial" = veio da varredura rápida (1 página por tribunal) e a empresa tinha mais.
+const chave = (basico) => `data-venia:djen:v2:${basico}`;
 function lerGuardado(basico) {
   try {
     const g = JSON.parse(localStorage.getItem(chave(basico)));
@@ -70,6 +72,7 @@ function lerGuardado(basico) {
   } catch { return null; }
 }
 function guardar(basico, dados) {
+  if (dados.parcial && lerGuardado(basico)?.parcial === false) return;   // não troca completo por parcial
   try { localStorage.setItem(chave(basico), JSON.stringify({ quando: Date.now(), ...dados })); } catch { /* sem espaço ou bloqueado: só não guarda */ }
 }
 
@@ -79,20 +82,23 @@ export const jaGuardadas = (empresas) =>
   empresas.filter((e) => e.consultado === false && e.busca).map((e) => [e, lerGuardado(e.busca.basico)]).filter(([, g]) => g);
 
 // ---------- Busca de uma empresa ----------
-// Uma busca por empresa de cada vez: tocar na loja que a varredura já está consultando reaproveita a busca.
+// Duas profundidades: a varredura faz 1 pedido só, de todos os tribunais juntos (completo para a
+// maioria das lojas; parcial nas grandes, mas basta para a cor no mapa); o clique lê cada tribunal
+// até 5 páginas (a lista completa na gaveta). Cada uma tem sua busca em andamento; tocar de novo
+// na mesma loja reaproveita a busca completa que já está correndo.
 const emAndamento = new Map();
+const PAGINAS_VARREDURA = 1;
 
 // emp.busca = { basico, razao, comarca, tribunais } (gerado por scripts/cidade.mjs).
-// Devolve { processos, totalProcessos } no formato do app, com datas ainda como texto.
+// Devolve { processos, totalProcessos, parcial } no formato do app, com datas ainda como texto.
 export function buscarAoVivo(emp, { aoProgresso, aoAviso, tipo = "clique" } = {}) {
   const { basico } = emp.busca;
   const guardado = lerGuardado(basico);
-  if (guardado) return Promise.resolve(guardado);
-  let busca = emAndamento.get(basico);
-  if (!busca) busca = iniciar(emp, tipo);
+  if (guardado && (tipo === "fundo" || !guardado.parcial)) return Promise.resolve(guardado);
+  const paginas = tipo === "fundo" ? PAGINAS_VARREDURA : PAGINAS;
+  const busca = emAndamento.get(`${basico}:${paginas}`) || iniciar(emp, tipo, paginas);
   if (tipo === "clique") {
-    // Promove (se era da varredura) e passa a mostrar o andamento nesta gaveta.
-    Object.assign(busca, { tipo: "clique", aoProgresso, aoAviso });
+    Object.assign(busca, { aoProgresso, aoAviso });
     cliquesEmAndamento++;
     const fim = () => cliquesEmAndamento--;
     busca.promessa.then(fim, fim);
@@ -100,21 +106,23 @@ export function buscarAoVivo(emp, { aoProgresso, aoAviso, tipo = "clique" } = {}
   return busca.promessa;
 }
 
-function iniciar(emp, tipo) {
+function iniciar(emp, tipo, paginas) {
   const { basico } = emp.busca;
   const cnpj = emp.cnpj.replace(/\D/g, "");
   const busca = { tipo, aoProgresso: null, aoAviso: null };
+  const id = `${basico}:${paginas}`;
   // Os tribunais correm juntos; o texto conta quantas páginas já chegaram. Empresa grande tem várias.
   busca.promessa = consultarEmpresa({ ...emp.busca, cnpj }, criarPedir(busca), ({ pedidos }) =>
-    busca.aoProgresso?.(`Lendo o Diário de Justiça… ${pedidos} ${pedidos > 1 ? "páginas lidas" : "página lida"}`), { emParalelo: true })
+    busca.aoProgresso?.(`Lendo o Diário de Justiça… ${pedidos} ${pedidos > 1 ? "páginas lidas" : "página lida"}`),
+    { emParalelo: true, paginas, rapida: tipo === "fundo" })
     .then((r) => {
       const processos = r.processos.map((p, i) => converterProcesso(p, basico, i)).sort(maisRecentes);
-      const dados = { processos, totalProcessos: processos.length };
+      const dados = { processos, totalProcessos: processos.length, parcial: r.cortado && paginas < PAGINAS };
       guardar(basico, dados);
       return dados;
     })
-    .finally(() => emAndamento.delete(basico));
-  emAndamento.set(basico, busca);
+    .finally(() => emAndamento.delete(id));
+  emAndamento.set(id, busca);
   return busca;
 }
 

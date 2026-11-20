@@ -136,7 +136,9 @@ function geojson() {
         properties: {
           eid: e.id, nome: e.nome, tipo: e.tipo,
           qtd: vis.length, cat: categoriaDominante(vis), nivel: vis.length ? lerHistorico(vis).nivel : 0,
-          pendente: e.consultado === false,   // modo ao vivo: ainda ninguém tocou nela, não sabemos os processos
+          // Modo ao vivo: ainda não sabemos os processos. Inclui a rede nacional cuja varredura rápida só
+          // trouxe publicações de outras cidades: 0 ali não quer dizer "sem processos".
+          pendente: e.consultado === false || (e.parcial === true && vis.length === 0),
         },
       };
     }),
@@ -326,7 +328,7 @@ function indiceDe(eid) { return estado.empresas.findIndex((e) => e.id === eid); 
 
 function abrirSelecionada() {
   const emp = estado.empresas[estado.selecionada];
-  if (emp.consultado === false) return consultarAoVivo(emp);
+  if (emp.consultado === false || emp.parcial) return consultarAoVivo(emp);
   const vis = processosVisiveis(emp);
   abrirGaveta(emp, vis, lerHistorico(vis), categoriaDominante(vis), desselecionar, processosComoAutora(emp));
 }
@@ -335,9 +337,11 @@ function abrirSelecionada() {
 // Resultado chegou (de um clique, da varredura ou do guardado no navegador): a loja ganha cor.
 // Vários resultados no mesmo quadro viram um redesenho só.
 let redesenhoPendente = false;
-function aplicarResultado(emp, { processos, totalProcessos }) {
-  if (emp.consultado !== false) return;
-  Object.assign(emp, { processos: prepararDatas(processos), totalProcessos, consultado: true });
+// Resultado parcial (varredura rápida) colore o mapa; o completo (clique) substitui o parcial, nunca o contrário.
+function aplicarResultado(emp, { processos, totalProcessos, parcial = false }) {
+  const podeTrocar = emp.consultado === false || (emp.parcial && !parcial);
+  if (!podeTrocar) return;
+  Object.assign(emp, { processos: prepararDatas(processos), totalProcessos, consultado: true, parcial });
   if (redesenhoPendente) return;
   redesenhoPendente = true;
   requestAnimationFrame(() => {
@@ -499,10 +503,13 @@ function mostrarVarredura(caixa) {
   }
   const total = estado.empresas.length;
   const faltam = estado.empresas.filter((e) => e.consultado === false).length;
+  const abrirParaVer = estado.empresas.filter((e) => e.parcial && !processosVisiveis(e).length).length;
   linha.classList.toggle("completa", faltam === 0);
   linha.querySelector(".varredura-texto").textContent = faltam === 0
     ? `Todas as ${total} lojas consultadas no DJEN`
     : `${total - faltam} de ${total} lojas consultadas${estado.varredura === "rodando" ? ", das mais próximas para as mais longe" : ""}. O anel marca as que faltam.`;
+  if (faltam === 0 && abrirParaVer) linha.querySelector(".varredura-texto").textContent =
+    `Todas consultadas. ${abrirParaVer} ${abrirParaVer > 1 ? "redes grandes ficaram" : "rede grande ficou"} com anel: toque para a busca completa.`;
   linha.querySelector(".varredura-barra i").style.width = `${((total - faltam) / Math.max(1, total)) * 100}%`;
 }
 

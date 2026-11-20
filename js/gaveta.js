@@ -104,6 +104,13 @@ export function abrirGaveta(emp, processos, leitura, cat, fecharCb, comoAutora =
       b.setAttribute("aria-expanded", abre);
     }));
 
+  conteudo.querySelectorAll(".copiar").forEach((b) =>
+    b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(b.dataset.numero); b.textContent = "Copiado"; }
+      catch { b.textContent = "Não deu para copiar"; }
+      setTimeout(() => (b.textContent = "Copiar número"), 1800);
+    }));
+
   const num = conteudo.querySelector(".placar-num");
   if (num) contar(num, n);
 
@@ -149,9 +156,26 @@ function cartao(p, i) {
       <ol class="linha-tempo" aria-label="Últimas movimentações">
         ${movs.map((m) => `<li><time>${data.format(m.data)}</time>${esc(m.texto)}</li>`).join("")}
       </ol>
-      <div class="proc-num">${esc(p.numero)}, ${esc(p.tribunal)}${p.link ? ` · <a href="${esc(p.link)}" target="_blank" rel="noopener">abrir no tribunal</a>` : ""}</div>
+      <div class="proc-num">${esc(p.numero)}, ${esc(p.tribunal)}</div>
+      ${conferir(p)}
     </div></div></div>
   </li>`;
+}
+
+// Para quem quiser conferir que o processo existe: fontes oficiais primeiro, Google por último.
+// Google recebe o número entre aspas, para achar exatamente aquele processo.
+function conferir(p) {
+  const num = encodeURIComponent(p.numero);
+  const links = [
+    p.link && [p.link, "Documento no tribunal"],
+    [`https://comunica.pje.jus.br/consulta?numeroProcesso=${num}`, "Diário de Justiça"],
+    [`https://www.google.com/search?q=${encodeURIComponent(`"${p.numero}"`)}`, "Google"],
+  ].filter(Boolean);
+  return `
+      <div class="proc-conferir" aria-label="Conferir o processo">
+        <button class="copiar" data-numero="${esc(p.numero)}">Copiar número</button>
+        ${links.map(([href, rotulo]) => `<a href="${esc(href)}" target="_blank" rel="noopener">${rotulo}</a>`).join("")}
+      </div>`;
 }
 
 function contar(el, alvo) {
