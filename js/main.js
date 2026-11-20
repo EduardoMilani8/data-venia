@@ -110,6 +110,29 @@ function tingirMapa() {
 // de clientes), o processo não diz nada de ruim sobre ela: fica à parte, na gaveta.
 // Polo desconhecido ("parte") conta junto, para não esconder o que não sabemos classificar.
 const ehAutora = (p) => p.polo === "autora";
+// Os 8 primeiros dígitos do CNPJ são a empresa; os 4 depois da barra, a filial. Processos são da empresa.
+const empresaDe = (e) => e.busca?.basico || String(e.cnpj || e.id).replace(/\D/g, "").slice(0, 8);
+const palavras = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().match(/[A-Z0-9]{3,}/g) || [];
+// Prepara as lojas para a ficha: quantas unidades da mesma empresa há no mapa e, quando o nome da loja
+// não aparece na razão social (Stok Center × Comercial Zaffari Ltda), de quem ela é.
+function anotarEmpresas(empresas) {
+  const unidades = new Map();
+  for (const e of empresas) unidades.set(empresaDe(e), (unidades.get(empresaDe(e)) || 0) + 1);
+  for (const e of empresas) {
+    e.unidades = unidades.get(empresaDe(e));
+    const razao = e.busca?.razao;
+    const daRazao = new Set(palavras(razao));
+    e.marcaDe = razao && !palavras(e.nome).some((p) => daRazao.has(p)) ? razao : null;
+  }
+  return empresas;
+}
+// Uma loja por empresa: para somar processos sem contar a mesma empresa várias vezes.
+// Fica a unidade com mais processos (no modo ao vivo, uma pode já ter chegado e outra ainda não).
+function umaPorEmpresa(empresas) {
+  const m = new Map();
+  for (const e of empresas) { const k = empresaDe(e); if (!m.has(k) || e.processos.length > m.get(k).processos.length) m.set(k, e); }
+  return [...m.values()];
+}
 function processosVisiveis(e) {
   return e.processos.filter((p) => !ehAutora(p) && estado.filtros.has(p.categoria));
 }
@@ -338,10 +361,16 @@ function abrirSelecionada() {
 // Vários resultados no mesmo quadro viram um redesenho só.
 let redesenhoPendente = false;
 // Resultado parcial (varredura rápida) colore o mapa; o completo (clique) substitui o parcial, nunca o contrário.
+// O resultado vale para todas as unidades da mesma empresa no mapa (os processos são da empresa).
 function aplicarResultado(emp, { processos, totalProcessos, parcial = false }) {
-  const podeTrocar = emp.consultado === false || (emp.parcial && !parcial);
-  if (!podeTrocar) return;
-  Object.assign(emp, { processos: prepararDatas(processos), totalProcessos, consultado: true, parcial });
+  const alvo = empresaDe(emp);
+  let mudou = false;
+  for (const e of estado.empresas) {
+    if (empresaDe(e) !== alvo || !(e.consultado === false || (e.parcial && !parcial))) continue;
+    Object.assign(e, { processos: prepararDatas(processos), totalProcessos, consultado: true, parcial });
+    mudou = true;
+  }
+  if (!mudou) return;
   if (redesenhoPendente) return;
   redesenhoPendente = true;
   requestAnimationFrame(() => {
@@ -434,7 +463,7 @@ function desselecionar() {
 // ---------- Filtros, resumo, busca ----------
 function atualizarContagens() {
   const contagem = {};
-  for (const e of estado.empresas) for (const p of e.processos) if (!ehAutora(p)) contagem[p.categoria] = (contagem[p.categoria] || 0) + 1;
+  for (const e of umaPorEmpresa(estado.empresas)) for (const p of e.processos) if (!ehAutora(p)) contagem[p.categoria] = (contagem[p.categoria] || 0) + 1;
   document.querySelectorAll("#filtros .chip").forEach((c) => (c.querySelector(".qtd").textContent = contagem[c.dataset.cat] || 0));
 }
 
@@ -503,11 +532,12 @@ function atualizarResumo() {
   const caixa = document.getElementById("resumo");
   if (!caixa.children.length) {
     caixa.innerHTML = `
-      <div><div class="num" data-k="emp">0</div><div class="rot">empresas</div></div>
-      <div><div class="num" data-k="com">0</div><div class="rot">com processos</div></div>
+      <div><div class="num" data-k="emp">0</div><div class="rot">lojas</div></div>
+      <div><div class="num" data-k="com">0</div><div class="rot">empresas com processos</div></div>
       <div><div class="num" data-k="proc">0</div><div class="rot">processos</div></div>`;
   }
-  const vis = estado.empresas.map(processosVisiveis);
+  // Lojas da mesma empresa dividem os mesmos processos: soma cada empresa uma vez só.
+  const vis = umaPorEmpresa(estado.empresas).map(processosVisiveis);
   if (MODO === "vivo") mostrarVarredura(caixa);
   contarAte(caixa.querySelector('[data-k="emp"]'), estado.empresas.length);
   contarAte(caixa.querySelector('[data-k="com"]'), vis.filter((v) => v.length).length);
@@ -681,7 +711,7 @@ async function recentrar(nova) {
   if (gavetaAberta()) desselecionar();
   const empresas = await carregarEmpresas(nova);
   estado.centro = { ...estado.centro, lat: nova.lat, lng: nova.lng };
-  estado.empresas = empresas;
+  estado.empresas = anotarEmpresas(empresas);
   estado.porId = new Map(empresas.map((e) => [e.id, e]));
   estado.selecionada = null;
   estado.hover = null;
@@ -838,7 +868,7 @@ async function iniciar() {
   tema.definirCentro(centro);
   if (tema.atual !== temaAntes) await new Promise((ok) => map.once("style.load", ok));
 
-  estado.empresas = empresas;
+  estado.empresas = anotarEmpresas(empresas);
   empresas.forEach((e) => estado.porId.set(e.id, e));
   // A varredura começa já, com a abertura ainda na tela, e a abertura espera as lojas mais perto.
   if (MODO === "vivo") {

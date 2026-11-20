@@ -19,12 +19,30 @@ export function fecharGaveta() {
   gaveta.setAttribute("aria-hidden", "true");
 }
 
+// "COMERCIAL ZAFFARI LTDA" → "Comercial Zaffari Ltda" (siglas curtas como S/A ficam em maiúsculas).
+const nomeBonito = (s) => s.toLowerCase().replace(/(^|[\s/.-])(\p{L})/gu, (_, a, l) => a + l.toUpperCase())
+  .replace(/\b(S\/?a|Me|Epp|Cia)\b/g, (m) => m.toUpperCase()).replace(/\b(De|Da|Do|Das|Dos|E)\b/g, (m) => m.toLowerCase());
+
+// Quando o letreiro não é o nome da empresa (Stok Center é da Comercial Zaffari), a ficha diz de quem
+// a loja é: os processos saem com o nome da empresa e valem para todas as unidades dela.
+function avisoMarca(emp) {
+  if (!emp.marcaDe && !(emp.unidades > 1)) return "";
+  const outras = emp.unidades - 1;
+  const quem = emp.marcaDe
+    // "registrada no nome de" serve para marca própria (Stok Center) e para franquia (O Boticário de um franqueado).
+    ? `Esta loja está registrada no nome de <strong>${esc(nomeBonito(emp.marcaDe))}</strong>. É esse nome que aparece nos processos, e eles valem para a empresa inteira, não só para esta unidade.`
+    : "Os processos valem para a empresa inteira, não só para esta unidade.";
+  const irmas = outras > 0 ? ` Outras ${outras} ${outras === 1 ? "loja" : "lojas"} neste mapa são da mesma empresa.` : "";
+  return `<p class="emp-marca">${quem}${irmas}</p>`;
+}
+
 function cabeca(emp, cat) {
   return `
     <header class="emp-cabeca" style="--cor:var(--${cat})">
       <div class="emp-tipo">${esc(emp.tipo)}</div>
       <h2 class="emp-nome">${esc(emp.nome)}</h2>
       <div class="emp-cnpj">CNPJ ${esc(emp.cnpj)}</div>
+      ${avisoMarca(emp)}
     </header>`;
 }
 

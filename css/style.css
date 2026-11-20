@@ -249,6 +249,11 @@ body.gaveta-aberta .resumo { opacity: 0; transform: translateY(-10px); pointer-e
   font-size: 26px; line-height: 1.05; letter-spacing: -0.02em;
 }
 .emp-cnpj { font-size: 13px; color: var(--texto-3); font-variant-numeric: tabular-nums; }
+.emp-marca {
+  margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45;
+  color: var(--texto-2); background: var(--superficie); border-left: 3px solid var(--cor);
+}
+.emp-marca strong { color: var(--texto); font-weight: 600; }
 
 .emp-placar { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; padding: 4px 22px 6px; }
 .placar-num {
