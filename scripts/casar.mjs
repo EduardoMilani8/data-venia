@@ -32,20 +32,28 @@ const normalNumero = (s) => (s || "").replace(/\D/g, "").replace(/^0+/, "");
 // ---------- Atividade: tipo do OSM → início do CNAE esperado ----------
 const CNAE = {
   "amenity=pharmacy": ["4771"], "amenity=restaurant": ["5611"], "amenity=fast_food": ["5611"],
-  "amenity=cafe": ["5611"], "amenity=bar": ["5611"], "amenity=pub": ["5611"], "amenity=ice_cream": ["5611", "1053"],
-  "amenity=bank": ["642"], "amenity=fuel": ["4731"], "amenity=dentist": ["8630"], "amenity=clinic": ["86"],
+  "amenity=cafe": ["5611"], "amenity=bar": ["5611"], "amenity=pub": ["5611"], "amenity=ice_cream": ["5611", "1053", "4637", "4729"],
+  "amenity=bank": ["642", "6436", "6438"], "amenity=fuel": ["4731"], "amenity=dentist": ["8630"], "amenity=clinic": ["86"],
   "amenity=doctors": ["86"], "amenity=veterinary": ["7500"], "amenity=driving_school": ["8599"],
   "amenity=cinema": ["5914"], "amenity=car_wash": ["4520"], "amenity=car_rental": ["7711"],
   "shop=supermarket": ["4711", "4712"], "shop=convenience": ["4711", "4712", "4729"], "shop=clothes": ["4781"],
   "shop=shoes": ["4782"], "shop=books": ["4761"], "shop=bakery": ["1091", "4721"], "shop=optician": ["4774"],
-  "shop=hardware": ["4744"], "shop=furniture": ["4754"], "shop=electronics": ["4752", "4753"],
-  "shop=mobile_phone": ["4752"], "shop=car": ["4511"], "shop=car_repair": ["4520"], "shop=butcher": ["4722"],
+  "shop=hardware": ["4744", "4753", "4759"], "shop=greengrocer": ["4724", "4711", "4712"], "shop=furniture": ["4754"], "shop=electronics": ["4752", "4753"],
+  "shop=mobile_phone": ["4752", "4751"], "shop=car": ["4511"], "shop=car_repair": ["4520"], "shop=butcher": ["4722"],
   "shop=hairdresser": ["9602"], "shop=beauty": ["9602"], "shop=pet": ["4789"], "shop=florist": ["4789"],
   "shop=jewelry": ["4783"], "shop=sports": ["4763"], "shop=cosmetics": ["4772"], "shop=chemist": ["4772", "4771"],
   "shop=mall": ["6810", "6822"], "tourism=hotel": ["5510"], "tourism=motel": ["5510"],
-  "leisure=fitness_centre": ["9313"], "leisure=sports_centre": ["9313", "9311", "9319"],
+  "leisure=fitness_centre": ["9313"], "leisure=sports_centre": ["9313", "9311", "9312", "9319"],
 };
 const cnaeCompativel = (tipo, cnae) => (CNAE[tipo] || (tipo.startsWith("shop=") ? ["47"] : [])).some((p) => cnae.startsWith(p));
+// Atividade claramente errada: o tipo do lugar tem atividade esperada e a da Receita não é nem parecida.
+// Qualquer loja (shop=) aceita comércio varejista (47) como "parecida"; tipos sem expectativa (escritório,
+// associação) não contam contra.
+const cnaeContra = (tipo, cnae) => {
+  if (!cnae || cnaeCompativel(tipo, cnae)) return false;
+  if (tipo.startsWith("shop=")) return !cnae.startsWith("47");
+  return Boolean(CNAE[tipo]);
+};
 
 // ---------- Leitura da Receita ----------
 const ler = async (n) => (await readFile(`${pastaRf}/${n}`, "utf8")).split("\n").filter(Boolean).map((l) => l.split(";"));
@@ -67,6 +75,9 @@ const estabs = (await ler("estabelecimentos.csv")).map((c) => {
     fichasFantasia: fichas(fantasia), fichasRazao: fichas(emp.razao),
   };
 });
+
+const unidades = new Map();   // básico → quantas unidades ativas a empresa tem na cidade
+for (const e of estabs) unidades.set(e.basico, (unidades.get(e.basico) || 0) + 1);
 
 // Índice invertido: ficha → estabelecimentos que a contêm
 const indice = new Map();
@@ -114,7 +125,8 @@ function similaridade(a, b) {
 }
 
 function pontuar(lugar, fl, e) {
-  const nome = Math.max(similaridade(fl, e.fichasFantasia), similaridade(fl, e.fichasRazao));
+  const pelaFantasia = similaridade(fl, e.fichasFantasia), pelaRazao = similaridade(fl, e.fichasRazao);
+  const nome = Math.max(pelaFantasia, pelaRazao);
   let total = nome, motivos = [`nome ${nome.toFixed(2)}`];
   const rua = lugar.rua ? normalRua(lugar.rua) : "";
   if (rua && e.rua) {
@@ -130,7 +142,7 @@ function pontuar(lugar, fl, e) {
     total += 0.2; motivos.push("rua próxima");
   }
   if (cnaeCompativel(lugar.tipo, e.cnae)) { total += 0.15; motivos.push("atividade"); }
-  return { total, nome, motivos };
+  return { total, nome, pelaFantasia, motivos };
 }
 
 // ---------- Ruas perto de cada lugar ----------
@@ -194,8 +206,23 @@ for (const lugar of lugares) {
     else if (melhor.total >= 0.85 && folga >= 0.1) confianca = "média";
   }
 
+  // Ligação média com sinal claro de erro vira "nenhuma" (e vai para a revisão). Melhor uma loja sem
+  // processos do que processos de outra empresa: isso seria acusar a loja errada.
+  //   - atividade da Receita não combina (posto ligado a transportadora, shopping ligado ao Burger King);
+  //   - a palavra mais rara do nome do mapa não aparece na Receita: faltar "Pizzaria" ou "Mercado" é
+  //     normal, faltar "Celestino" em "Celestino Moda Homem" × "KAKA MODA HOMEM" não é.
+  // (Um terceiro caso, a unidade da Receita já pertencer a outra loja do mapa, é tratado no fim.)
+  let rebaixada = null;
+  if (confianca === "média") {
+    const e = melhor.e;
+    const rara = fl.reduce((a, t) => (peso(t) > peso(a) ? t : a), fl[0]);
+    if (cnaeContra(lugar.tipo, e.cnae)) rebaixada = "atividade não combina";
+    else if (!e.fichas.some((u) => quase(rara, u))) rebaixada = `falta "${rara}" no nome da Receita`;
+    if (rebaixada) confianca = "nenhuma";
+  }
+
   // Duvidosos vão para a revisão: confiança média, ou bom resultado travado por empate.
-  if (confianca === "média" || (confianca === "nenhuma" && melhor?.total >= 0.85)) {
+  if (confianca === "média" || rebaixada || (confianca === "nenhuma" && melhor?.total >= 0.85)) {
     const vistas = new Set();
     const opcoes = ranking.filter((c) => !vistas.has(c.e.basico) && vistas.add(c.e.basico)).slice(0, 3);
     paraRevisar.push({ lugar, opcoes });
@@ -210,9 +237,18 @@ for (const lugar of lugares) {
     confianca = "revisada";
   }
 
+  // Filial: a empresa pode ter várias unidades na cidade. Só dá para dizer qual é esta quando o endereço
+  // bate e nenhuma outra unidade da mesma empresa empata. Sem isso, o app mostra só o CNPJ da empresa.
+  const pistaEndereco = (c) => c.motivos.some((m) => ["número", "rua", "rua parecida", "rua próxima"].includes(m));
+  const filialCerta = confianca === "revisada" || (Boolean(melhor) && pistaEndereco(melhor) &&
+    !ranking.some((c) => c !== melhor && c.e.basico === melhor.e.basico && c.total >= melhor.total - 0.01));
+
   resultado.push({
     ...lugar,
     confianca,
+    rebaixada,
+    filialCerta: confianca !== "nenhuma" && filialCerta,
+    unidadesNaCidade: melhor ? unidades.get(melhor.e.basico) : null,
     cnpj: confianca !== "nenhuma" ? melhor.e.cnpj : null,
     basico: confianca !== "nenhuma" ? melhor.e.basico : null,
     pessoa: confianca !== "nenhuma" ? melhor.e.pessoa : null,
@@ -237,6 +273,38 @@ if (process.env.DEPURAR) {
       console.log(`   ${c.total.toFixed(2)} ${c.e.basico} ${c.e.fantasia || c.e.razao} / rua ${c.e.rua} ${c.e.numero} [${c.motivos}]`);
   }
   process.exit();
+}
+
+// ---------- Mesma unidade em mais de um lugar ----------
+// O OpenStreetMap às vezes tem a mesma loja duas vezes (um ponto e o contorno do prédio). Mesmo CNPJ,
+// mesmo nome e a menos de 60 m: fica só um. Já lugares distantes com o mesmo CNPJ completo são unidades
+// diferentes que caíram na mesma filial: a filial de todas fica incerta (a não ser a que bate o número).
+const metros = (a, b) => Math.hypot((a.lng - b.lng) * 111320 * Math.cos((a.lat * Math.PI) / 180), (a.lat - b.lat) * 110540);
+const nomeSimples = (s) => fichas(s).join(" ");
+const porFilial = new Map();
+for (const r of resultado) if (r.cnpj) (porFilial.get(r.cnpj) || porFilial.set(r.cnpj, []).get(r.cnpj)).push(r);
+let duplicadas = 0;
+for (const grupo of porFilial.values()) {
+  grupo.sort((a, b) => b.pontos - a.pontos);
+  for (const r of grupo) {
+    const igual = grupo.find((o) => o !== r && !o.duplicadoDe && grupo.indexOf(o) < grupo.indexOf(r) &&
+      nomeSimples(o.nome) === nomeSimples(r.nome) && metros(o, r) < 60);
+    if (igual) { r.duplicadoDe = igual.osm; duplicadas++; }
+  }
+  const restantes = grupo.filter((r) => !r.duplicadoDe);
+  if (restantes.length < 2) continue;
+  // A unidade da Receita tem nome fantasia e outra loja do mapa leva esse nome: a que não leva está errada
+  // ("Zanatta", loja agropecuária, caía na franqueada O Boticário que já é o "O Boticário" do mapa).
+  // Só vale para ligação média; alta tem endereço ou nome fortes demais para cair por isso.
+  const est = porCnpj.get(grupo[0].cnpj);
+  const levaFantasia = (r) => est.fichasFantasia.length && similaridade(fichas(r.nome), est.fichasFantasia) >= 0.5;
+  if (restantes.some(levaFantasia)) {
+    for (const r of restantes) if (r.confianca === "média" && !levaFantasia(r)) {
+      Object.assign(r, { confianca: "nenhuma", rebaixada: `a unidade já é "${est.fantasia}" no mapa`, cnpj: null, basico: null, pessoa: null, filialCerta: false });
+    }
+  }
+  const ficam = restantes.filter((r) => r.cnpj);
+  if (ficam.length > 1) for (const r of ficam) if (!r.motivos.includes("número")) r.filialCerta = false;
 }
 
 await writeFile(`dados-reais/casamento-${slug}.json`, JSON.stringify(resultado, null, 1));
@@ -268,6 +336,9 @@ console.log(`  ligados com confiança alta:  ${pct(alta.length)}`);
 console.log(`  ligados com confiança média: ${pct(media.length)}`);
 console.log(`  ligados por revisão manual:  ${pct(revisada.length)}`);
 console.log(`  sem ligação:                 ${pct(n - ligados.length)}`);
+console.log(`  rebaixados de média para nenhuma (sinal de erro): ${resultado.filter((r) => r.rebaixada).length}`);
+console.log(`  mesma loja duas vezes no mapa (fica uma): ${duplicadas}`);
+console.log(`  filial identificada: ${ligados.filter((r) => r.filialCerta).length} de ${ligados.length}`);
 console.log(`  para revisar: ${paraRevisar.length} lugares em ${arqRevisao} (${decisoes.size} já decididos)`);
 console.log(`  dos ligados, pessoa física (sairiam do app): ${ligados.filter((r) => r.pessoa).length}`);
 console.log(`  dos ligados, empresas distintas (consultas de processo necessárias): ${new Set(ligados.filter((r) => !r.pessoa).map((r) => r.basico)).size}`);

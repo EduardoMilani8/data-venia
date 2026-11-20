@@ -23,9 +23,18 @@ export function tribunaisDaUf(uf) {
 
 // ---------- Nomes ----------
 export const semAcento = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
-const SUFIXOS = new Set("LTDA ME EPP EIRELI SA S A SS LIMITADA CIA".split(" "));
-export const normalNome = (s) => semAcento(s || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").split(/\s+/)
-  .filter((t) => t && !SUFIXOS.has(t)).join(" ");
+// "S A" (de S/A, S.A.) sai em par; um "A" sozinho é inicial de nome ("R. A. ZANATTA") e fica.
+// Tirar o "A" solto fazia a busca virar "R ZANATTA", que o DJEN não acha.
+const SUFIXOS = new Set("LTDA ME EPP EIRELI SA SS LIMITADA CIA".split(" "));
+export function normalNome(s) {
+  const t = semAcento(s || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  const fica = [];
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === "S" && t[i + 1] === "A") { i++; continue; }
+    if (!SUFIXOS.has(t[i])) fica.push(t[i]);
+  }
+  return fica.join(" ");
+}
 const ehParte = (item, alvo) => (item.destinatarios || []).some((d) => normalNome(d.nome) === alvo);
 // Parece empresa ou órgão público? Só então o nome pode aparecer no app.
 const PJ = /\b(LTDA|S\/?A|EIRELI|EPP|ME|BANCO|CAIXA|COMPANHIA|CIA|COOPERATIVA|ASSOCIA|SINDICATO|CONDOMINIO|INSTITUTO|FUNDACAO|FUNDO|MUNICIPIO|ESTADO|UNIAO|FAZENDA|INSS|MINISTERIO|PREFEITURA|EMPRESA|COMERCIO|INDUSTRIA|SERVICOS|CONSTRUTORA|INCORPORADORA|SHOPPING|SUPERMERCADO|FARMACIA|SEGURADORA|SEGUROS|TELECOM|ENERGIA|HOSPITAL|UNIVERSIDADE|ESCOLA|IGREJA|PARTICIPACOES|ADMINISTRADORA|HOLDING|S\.A\.)\b/;

@@ -43,12 +43,14 @@ async function processosDe(basico) {
 const empresas = [];
 let semConsulta = 0;
 for (const l of casamento) {
-  if (!["alta", "média", "revisada"].includes(l.confianca) || l.pessoa) continue;
+  if (!["alta", "média", "revisada"].includes(l.confianca) || l.pessoa || l.duplicadoDe) continue;
   const dados = await processosDe(l.basico);
   if (!dados) semConsulta++;
   const processos = (dados?.processos || []).map((p, i) => converterProcesso(p, l.basico, i)).sort(maisRecentes);
   empresas.push({
     id: l.osm, nome: l.nome, tipo: tipoDe(l.tipo), cnpj: formatarCnpj(l.cnpj), lat: l.lat, lng: l.lng,
+    // Filial incerta: o app mostra só o CNPJ da empresa (8 primeiros dígitos), não o de outra unidade.
+    filialCerta: l.filialCerta !== false, unidadesNaCidade: l.unidadesNaCidade || 1,
     confianca: l.confianca, totalProcessos: dados?.envolvido.quantidade_processos ?? processos.length,
     consultado: Boolean(dados), processos,
     busca: { basico: l.basico, razao: l.razao, comarca: COMARCA, tribunais: TRIBUNAIS },

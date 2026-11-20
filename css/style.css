@@ -249,6 +249,7 @@ body.gaveta-aberta .resumo { opacity: 0; transform: translateY(-10px); pointer-e
   font-size: 26px; line-height: 1.05; letter-spacing: -0.02em;
 }
 .emp-cnpj { font-size: 13px; color: var(--texto-3); font-variant-numeric: tabular-nums; }
+.emp-cnpj small { font-size: 12px; }
 .emp-marca {
   margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45;
   color: var(--texto-2); background: var(--superficie); border-left: 3px solid var(--cor);

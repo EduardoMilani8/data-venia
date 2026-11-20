@@ -36,12 +36,20 @@ function avisoMarca(emp) {
   return `<p class="emp-marca">${quem}${irmas}</p>`;
 }
 
+// Quando não dá para saber qual unidade da empresa é esta loja, mostrar o CNPJ completo de outra unidade
+// seria errado: quem conferisse na Receita veria outro endereço. Mostra o da empresa e diz por quê.
+function linhaCnpj(emp) {
+  if (emp.filialCerta !== false) return `CNPJ ${esc(emp.cnpj)}`;
+  const n = emp.unidadesNaCidade;
+  return `CNPJ da empresa ${esc(emp.cnpj.slice(0, 10))}/…<br><small>Ela tem ${n > 1 ? `${n} unidades` : "outras unidades"} na cidade e não deu para saber qual delas é esta.</small>`;
+}
+
 function cabeca(emp, cat) {
   return `
     <header class="emp-cabeca" style="--cor:var(--${cat})">
       <div class="emp-tipo">${esc(emp.tipo)}</div>
       <h2 class="emp-nome">${esc(emp.nome)}</h2>
-      <div class="emp-cnpj">CNPJ ${esc(emp.cnpj)}</div>
+      <div class="emp-cnpj">${linhaCnpj(emp)}</div>
       ${avisoMarca(emp)}
     </header>`;
 }
