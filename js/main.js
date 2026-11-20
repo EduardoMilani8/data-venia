@@ -561,8 +561,11 @@ function pedirPosicao(opcoes) {
 // PC não tem GPS: o navegador chuta a posição pelo IP ou pelo Wi-Fi, e pode errar por quilômetros.
 // Quem digita o endereço uma vez fica com ele neste navegador; da próxima vez, se a localização do
 // aparelho vier imprecisa, o endereço guardado vale mais. No celular com GPS bom, o GPS continua mandando.
+// Só no PC (mouse e sem toque): no celular o GPS é mais preciso que qualquer endereço digitado.
 const CHAVE_ENDERECO = "data-venia:endereco";
+const ehPc = matchMedia("(hover: hover) and (pointer: fine)").matches && !matchMedia("(any-pointer: coarse)").matches;
 function enderecoGuardado() {
+  if (!ehPc) return null;
   try {
     const e = JSON.parse(localStorage.getItem(CHAVE_ENDERECO));
     return Number.isFinite(e?.lat) && Number.isFinite(e?.lng) ? { lat: e.lat, lng: e.lng, nome: String(e.nome || "Endereço guardado"), deGps: false } : null;
@@ -750,6 +753,7 @@ function montarEndereco() {
   const form = document.getElementById("endereco");
   const campo = document.getElementById("endereco-campo");
   const saida = form.querySelector(".endereco-resultados");
+  if (!ehPc) { botao.hidden = true; return; }
   const abrir = (sim) => {
     form.hidden = !sim;
     botao.setAttribute("aria-expanded", sim);
