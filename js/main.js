@@ -3,6 +3,7 @@ import { TIPOS_PROCESSO } from "./dados/demo.js";
 import { lerHistorico } from "./classificacao.js";
 import { abrirGaveta, fecharGaveta, gavetaAberta, gavetaBuscando, gavetaFalhou } from "./gaveta.js";
 import { criarTema } from "./tema.js";
+import { razaoComNomeDePessoa } from "./dados/djen.js";
 
 const CENTRO_PADRAO = { lat: -23.5503, lng: -46.6339, nome: "Centro de São Paulo" };
 const FONTE = ["Montserrat Medium"];
@@ -123,6 +124,7 @@ function anotarEmpresas(empresas) {
     const razao = e.busca?.razao;
     const daRazao = new Set(palavras(razao));
     e.marcaDe = razao && !palavras(e.nome).some((p) => daRazao.has(p)) ? razao : null;
+    e.razaoPessoal = Boolean(razao) && razaoComNomeDePessoa(razao);   // a ficha não mostra esse nome
   }
   return empresas;
 }

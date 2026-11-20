@@ -1,3 +1,5 @@
+import { razaoComNomeDePessoa } from "./djen.js";
+
 // Formato comum de processo ({numero_cnj, fontes:[…]}) → formato que a gaveta e o mapa leem.
 // Usado por scripts/cidade.mjs (em lote) e pela busca ao vivo no navegador.
 
@@ -37,7 +39,9 @@ export function converterProcesso(proc, basico, i) {
     assunto: f.segredo_justica ? "Processo em segredo de justiça" : frase(capa.assunto || capa.classe) || "Assunto não informado",
     resumo: null,
     polo,
-    outraParte: !outro ? null : outro.tipo_pessoa === "FISICA" ? "Pessoa física (nome omitido)" : outro.nome,
+    // Empresa com nome de gente ("FERNANDO MEZZOMO LTDA", "FULANO - ME") também fica sem nome, como a pessoa física.
+    outraParte: !outro ? null : outro.tipo_pessoa === "FISICA" ? "Pessoa física (nome omitido)"
+      : razaoComNomeDePessoa(outro.nome) ? "Empresa (nome omitido)" : outro.nome,
     status: capa.situacao || (ativo ? "Em andamento" : "Encerrado"),
     ativo,
     valor: capa.valor_causa ?? null,

@@ -28,7 +28,9 @@ const nomeBonito = (s) => s.toLowerCase().replace(/(^|[\s/.-])(\p{L})/gu, (_, a,
 function avisoMarca(emp) {
   if (!emp.marcaDe && !(emp.unidades > 1)) return "";
   const outras = emp.unidades - 1;
-  const quem = emp.marcaDe
+  const quem = emp.marcaDe && emp.razaoPessoal
+    ? "Esta loja está registrada no nome de uma empresa que leva o nome de uma pessoa. Por privacidade, esse nome não aparece aqui. Os processos valem para a empresa inteira, não só para esta unidade."
+    : emp.marcaDe
     // "registrada no nome de" serve para marca própria (Stok Center) e para franquia (O Boticário de um franqueado).
     ? `Esta loja está registrada no nome de <strong>${esc(nomeBonito(emp.marcaDe))}</strong>. É esse nome que aparece nos processos, e eles valem para a empresa inteira, não só para esta unidade.`
     : "Os processos valem para a empresa inteira, não só para esta unidade.";
