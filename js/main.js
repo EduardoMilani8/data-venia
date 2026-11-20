@@ -557,14 +557,28 @@ function pedirPosicao(opcoes) {
   return new Promise((ok, falha) => navigator.geolocation.getCurrentPosition(ok, falha, opcoes));
 }
 
+// ---------- Endereço digitado ----------
+// PC não tem GPS: o navegador chuta a posição pelo IP ou pelo Wi-Fi, e pode errar por quilômetros.
+// Quem digita o endereço uma vez fica com ele neste navegador; da próxima vez, se a localização do
+// aparelho vier imprecisa, o endereço guardado vale mais. No celular com GPS bom, o GPS continua mandando.
+const CHAVE_ENDERECO = "data-venia:endereco";
+function enderecoGuardado() {
+  try {
+    const e = JSON.parse(localStorage.getItem(CHAVE_ENDERECO));
+    return Number.isFinite(e?.lat) && Number.isFinite(e?.lng) ? { lat: e.lat, lng: e.lng, nome: String(e.nome || "Endereço guardado"), deGps: false } : null;
+  } catch { return null; }
+}
+
 // Tenta primeiro o modo rápido (Wi-Fi e antenas). Se não der, liga o GPS de alta precisão.
 async function ondeEstou({ ignorarUrl = false, aoDemorar } = {}) {
   const q = new URLSearchParams(location.search);
   if (!ignorarUrl && q.get("lat") && q.get("lng")) {
     const gps = q.get("origem") === "gps";
-    return { lat: +q.get("lat"), lng: +q.get("lng"), nome: gps ? "Perto de você" : "Ponto escolhido", deGps: gps };
+    const nome = gps ? "Perto de você" : q.get("nome") || "Ponto escolhido";
+    return { lat: +q.get("lat"), lng: +q.get("lng"), nome, deGps: gps };
   }
-  if (!navigator.geolocation) return { ...CENTRO_PADRAO, falha: "Este navegador não oferece localização." };
+  const guardado = enderecoGuardado();
+  if (!navigator.geolocation) return guardado || { ...CENTRO_PADRAO, falha: "Este navegador não oferece localização." };
 
   const demora = setTimeout(() => aoDemorar?.(), 4000);
   try {
@@ -576,8 +590,10 @@ async function ondeEstou({ ignorarUrl = false, aoDemorar } = {}) {
       aoDemorar?.();
       p = await pedirPosicao({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
     }
+    if (guardado && p.coords.accuracy > PRECISAO_FRACA) return guardado;
     return { lat: p.coords.latitude, lng: p.coords.longitude, precisao: p.coords.accuracy, nome: "Perto de você", deGps: true };
   } catch (e) {
+    if (guardado) return guardado;
     return { ...CENTRO_PADRAO, falha: MOTIVO_LOCAL[e.code] || `Não deu para usar sua localização (${e.message}).` };
   } finally {
     clearTimeout(demora);
@@ -616,13 +632,13 @@ function circuloPrecisao(p) {
 
 // Acima disso a posição veio do Wi-Fi fraco ou do IP: vale avisar que no celular é melhor.
 const PRECISAO_FRACA = 300;
-const temMouse = matchMedia("(pointer: fine)").matches;
 
 function rotuloLocal() {
   const c = estado.centro, p = estado.posicao;
   const extra = p?.precisao ? `, precisão de ${formatarDistancia(p.precisao)}` : ", raio de 1 km";
-  const dica = p?.precisao > PRECISAO_FRACA && temMouse ? ". No celular, com GPS, fica exato." : "";
-  document.getElementById("local-label").textContent = `${c.nome}${extra}${dica}`;
+  document.getElementById("local-label").textContent = `${c.nome}${extra}`;
+  // Posição chutada pelo IP: o convite para digitar o endereço fica mais visível.
+  document.getElementById("btn-endereco").classList.toggle("destaque", p?.precisao > PRECISAO_FRACA);
 }
 
 function atualizarPosicao(nova) {
@@ -701,6 +717,72 @@ function avisarFalhaLocal(motivo) {
   };
 }
 
+// Busca no Nominatim (OpenStreetMap). A política de uso pede no máximo 1 pedido por segundo e
+// proíbe autocompletar a cada tecla, por isso só busca quando a pessoa aperta Buscar.
+async function procurarEndereco(texto) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.search = new URLSearchParams({ q: texto, format: "jsonv2", countrycodes: "br", limit: "5", "accept-language": "pt-BR", addressdetails: "1" });
+  const r = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`O OpenStreetMap respondeu ${r.status}.`);
+  return (await r.json()).map((x) => {
+    const a = x.address || {};
+    const rua = [a.road, a.house_number].filter(Boolean).join(", ");
+    const cidade = a.city || a.town || a.village || a.municipality || "";
+    const bairro = a.suburb || a.neighbourhood || "";
+    const curto = [rua || x.name, bairro, cidade].filter(Boolean).join(", ") || x.display_name;
+    return { lat: +x.lat, lng: +x.lon, nome: curto, completo: x.display_name };
+  });
+}
+
+function irPara(lugar) {
+  try { localStorage.setItem(CHAVE_ENDERECO, JSON.stringify({ lat: lugar.lat, lng: lugar.lng, nome: lugar.nome })); } catch { /* sem espaço ou bloqueado: vale só agora */ }
+  // Recarrega a partir do ponto: empresas, sol e tema são refeitos para ele, como no "Tentar de novo".
+  const url = new URL(location.href);
+  url.searchParams.set("lat", lugar.lat.toFixed(5));
+  url.searchParams.set("lng", lugar.lng.toFixed(5));
+  url.searchParams.set("origem", "endereco");
+  url.searchParams.set("nome", lugar.nome);
+  location.replace(url);
+}
+
+function montarEndereco() {
+  const botao = document.getElementById("btn-endereco");
+  const form = document.getElementById("endereco");
+  const campo = document.getElementById("endereco-campo");
+  const saida = form.querySelector(".endereco-resultados");
+  const abrir = (sim) => {
+    form.hidden = !sim;
+    botao.setAttribute("aria-expanded", sim);
+    if (sim) campo.focus();
+  };
+  botao.addEventListener("click", () => abrir(form.hidden));
+  form.querySelector(".endereco-fechar").addEventListener("click", () => abrir(false));
+  form.addEventListener("keydown", (ev) => { if (ev.key === "Escape") abrir(false); });
+  form.querySelector(".endereco-gps").addEventListener("click", () => {
+    try { localStorage.removeItem(CHAVE_ENDERECO); } catch { /* nada guardado */ }
+    const url = new URL(location.href);
+    for (const k of ["lat", "lng", "origem", "nome"]) url.searchParams.delete(k);
+    location.replace(url);
+  });
+  let ultimo = 0;
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const texto = campo.value.trim();
+    if (!texto || Date.now() - ultimo < 1000) return;
+    ultimo = Date.now();
+    saida.innerHTML = "<p>Procurando…</p>";
+    try {
+      const achados = await procurarEndereco(texto);
+      if (!achados.length) { saida.innerHTML = "<p>Nenhum endereço encontrado. Tente com o nome da cidade.</p>"; return; }
+      saida.innerHTML = achados.map((a, i) => `<button type="button" class="busca-item" data-i="${i}"><span>${esc(a.nome)}<small>${esc(a.completo)}</small></span></button>`).join("");
+      saida.querySelectorAll("[data-i]").forEach((b) => b.addEventListener("click", () => irPara(achados[+b.dataset.i])));
+      saida.querySelector("[data-i]").focus();
+    } catch (e) {
+      saida.innerHTML = `<p>Não deu para procurar agora. ${esc(e.message === "Failed to fetch" ? "Confira a internet." : e.message)}</p>`;
+    }
+  });
+}
+
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 // ---------- Início ----------
@@ -735,6 +817,7 @@ async function iniciar() {
   ligarInteracoes();
   montarFiltros();
   montarBusca();
+  montarEndereco();
   rotuloLocal();
   if (MODO !== "demo") document.getElementById("selo-demo").hidden = true;
   if (MODO === "vivo") comecarVarredura();

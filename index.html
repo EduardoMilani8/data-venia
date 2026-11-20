@@ -39,6 +39,7 @@
       <div>
         <h1>Data Venia</h1>
         <p id="local-label">Empresas num raio de 1 km</p>
+        <button type="button" id="btn-endereco" class="link-endereco" aria-expanded="false" aria-controls="endereco">Não é aqui? Digite o endereço</button>
       </div>
     </div>
     <label class="search">
@@ -53,6 +54,19 @@
         <button type="button" class="aviso-fechar" onclick="this.closest('.aviso-local').hidden = true; document.body.classList.remove('com-aviso-local')">Fechar</button>
       </div>
     </div>
+    <form id="endereco" class="aviso-local endereco" hidden>
+      <label for="endereco-campo">Onde você está?</label>
+      <div class="endereco-linha">
+        <input id="endereco-campo" type="search" placeholder="Rua e número, bairro, cidade" autocomplete="street-address" required />
+        <button type="submit" class="aviso-tentar">Buscar</button>
+      </div>
+      <div class="endereco-resultados" aria-live="polite"></div>
+      <div class="aviso-acoes">
+        <button type="button" class="endereco-gps">Usar a localização do aparelho</button>
+        <button type="button" class="endereco-fechar">Fechar</button>
+      </div>
+      <small>O endereço é procurado no OpenStreetMap e fica guardado só neste navegador.</small>
+    </form>
   </header>
 
   <!-- Base: filtros por tarja -->

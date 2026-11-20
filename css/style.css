@@ -156,6 +156,26 @@ button { font: inherit; color: inherit; }
 .aviso-acoes .aviso-tentar { background: var(--texto); color: var(--fundo); border-color: transparent; font-weight: 500; }
 .aviso-acoes button:disabled { opacity: 0.6; cursor: progress; }
 
+/* ---------- Endereço digitado (PC sem GPS) ---------- */
+.link-endereco {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--texto-3); text-decoration: underline; text-underline-offset: 2px;
+}
+.link-endereco:hover, .link-endereco.destaque { color: var(--texto); }
+.endereco { display: grid; gap: 10px; }
+.endereco[hidden] { display: none; }
+.endereco label { font-weight: 500; }
+.endereco-linha { display: flex; gap: 8px; }
+.endereco-linha input {
+  flex: 1; min-width: 0; padding: 7px 12px; border-radius: 999px; font: inherit;
+  color: var(--texto); background: var(--superficie); border: 1px solid var(--linha); outline: none;
+}
+.endereco-linha input:focus { border-color: var(--trabalhista); }
+.endereco-linha button { padding: 6px 14px; border-radius: 999px; border: 0; cursor: pointer; background: var(--texto); color: var(--fundo); font-weight: 500; }
+.endereco-resultados:empty { display: none; }
+.endereco-resultados p { margin: 0; color: var(--texto-2); }
+.endereco small { color: var(--texto-3); }
+
 /* ---------- Filtros ---------- */
 .filtros {
   position: fixed; z-index: 10; left: 16px; bottom: 16px;
