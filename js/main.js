@@ -363,6 +363,31 @@ function comecarVarredura() {
   });
 }
 
+// ---------- Abertura que espera as vizinhas ----------
+// No modo ao vivo, a tela de abertura segura até as lojas mais perto da pessoa terem processos,
+// para o mapa já abrir colorido onde ela está. Tem teto de tempo: o DJEN às vezes demora ~40 s
+// numa busca fria, e ninguém deve ficar preso na abertura por causa disso.
+const VIZINHAS = 10;             // quantas lojas mais próximas a abertura espera
+const ESPERA_MAX_MS = 20_000;    // depois disso abre de qualquer jeito; a varredura continua no mapa
+function esperarVizinhas(status) {
+  const kx = Math.cos((estado.centro.lat * Math.PI) / 180);
+  const dist = (e) => Math.hypot((e.lng - estado.centro.lng) * kx, e.lat - estado.centro.lat);
+  const alvo = estado.empresas.filter((e) => e.busca).sort((a, b) => dist(a) - dist(b)).slice(0, VIZINHAS);
+  const prontas = () => alvo.filter((e) => e.consultado !== false).length;
+  if (prontas() === alvo.length) return Promise.resolve();
+  const t0 = Date.now();
+  return new Promise((ok) => {
+    const vigia = setInterval(() => {
+      const n = prontas();
+      status.textContent = `Consultando o Diário de Justiça das lojas mais perto… ${n} de ${alvo.length}`;
+      if (n === alvo.length || Date.now() - t0 > ESPERA_MAX_MS || estado.varredura === "parada") {
+        clearInterval(vigia);
+        ok();
+      }
+    }, 250);
+  });
+}
+
 // A gaveta abre já, mostrando o andamento, e se preenche quando o DJEN responder.
 // Se a pessoa trocar de loja no meio, o resultado ainda é guardado na empresa certa e pinta o mapa.
 async function consultarAoVivo(emp) {
@@ -815,6 +840,11 @@ async function iniciar() {
 
   estado.empresas = empresas;
   empresas.forEach((e) => estado.porId.set(e.id, e));
+  // A varredura começa já, com a abertura ainda na tela, e a abertura espera as lojas mais perto.
+  if (MODO === "vivo") {
+    comecarVarredura();
+    await esperarVizinhas(status);
+  }
   tingirMapa();
   montarCamadas();
 
@@ -824,7 +854,6 @@ async function iniciar() {
   montarEndereco();
   rotuloLocal();
   if (MODO !== "demo") document.getElementById("selo-demo").hidden = true;
-  if (MODO === "vivo") comecarVarredura();
 
   const voce = document.createElement("div");
   voce.className = "voce";
