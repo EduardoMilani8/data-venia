@@ -176,9 +176,15 @@ const slug = arqOsm.match(/osm-(.+)\.json$/)?.[1] || "cidade";
 const arqRevisao = `dados-reais/revisao-${slug}.csv`;
 const NENHUMA = "nenhuma destas";
 const decisoes = new Map(); // osm → cnpj escolhido ou NENHUMA
-for (const linha of (await readFile(arqRevisao, "utf8").catch(() => "")).replace(/^﻿/, "").split("\n").slice(1)) {
-  const [certo, osm, , , cnpj] = linha.split(";");
-  if (certo?.trim()) decisoes.set(osm, cnpj || NENHUMA);
+// Lida pelo nome da coluna, então a ordem pode mudar sem perder as marcas.
+const [cab = "", ...corpo] = (await readFile(arqRevisao, "utf8").catch(() => "")).replace(/^﻿/, "").split("\n");
+const col = Object.fromEntries(cab.split(";").map((n, i) => [n.trim(), i]));
+for (const linha of corpo) {
+  const c = linha.split(";");
+  const osm = c[col.osm];
+  // CNPJ vem com pontuação (planilha não trata como número nem come o zero da frente).
+  const cnpj = (c[col.cnpj] || "").replace(/\D/g, "").padStart(14, "0");
+  if (osm && c[col.certo]?.trim()) decisoes.set(osm, /^0+$/.test(cnpj) ? NENHUMA : cnpj);
 }
 const porCnpj = new Map(estabs.map((e) => [e.cnpj, e]));
 
@@ -310,16 +316,19 @@ for (const grupo of porFilial.values()) {
 await writeFile(`dados-reais/casamento-${slug}.json`, JSON.stringify(resultado, null, 1));
 
 // Planilha de revisão, preservando as marcas já feitas. Empresa individual aparece sem nome.
+// Só o que a pessoa precisa para decidir; osm e cnpj vão no fim, para o script achar a escolha.
+// Uma linha em branco separa cada lugar.
+const cnpjFmt = (c) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 const celula = (s) => String(s ?? "").replace(/[;\n]/g, " ");
-const linhas = ["certo;osm;lugar no mapa;tipo;cnpj;empresa na Receita;endereço na Receita;pontos;motivos"];
+const linhas = ["certo;loja no mapa;empresa na Receita;endereço na Receita;osm;cnpj"];
 for (const { lugar, opcoes } of paraRevisar) {
   const d = decisoes.get(lugar.osm);
   for (const c of opcoes) {
     const nome = c.e.pessoa ? "(empresa individual: nome omitido)" : c.e.fantasia ? `${c.e.fantasia} (${c.e.razao})` : c.e.razao;
-    linhas.push([d === c.e.cnpj ? "x" : "", lugar.osm, lugar.nome, lugar.tipo, c.e.cnpj, nome,
-      `${c.e.rua} ${c.e.numero}`, c.total.toFixed(2), c.motivos.join(", ")].map(celula).join(";"));
+    linhas.push([d === c.e.cnpj ? "x" : "", lugar.nome, nome, `${c.e.rua} ${c.e.numero}`, lugar.osm, cnpjFmt(c.e.cnpj)].map(celula).join(";"));
   }
-  linhas.push([d === NENHUMA ? "x" : "", lugar.osm, lugar.nome, lugar.tipo, "", NENHUMA, "", "", ""].map(celula).join(";"));
+  linhas.push([d === NENHUMA ? "x" : "", lugar.nome, NENHUMA, "", lugar.osm, ""].map(celula).join(";"));
+  linhas.push("");
 }
 await writeFile(arqRevisao, "﻿" + linhas.join("\n") + "\n");
 

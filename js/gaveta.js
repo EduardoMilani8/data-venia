@@ -43,7 +43,7 @@ function avisoMarca(emp) {
 function linhaCnpj(emp) {
   if (emp.filialCerta !== false) return `CNPJ ${esc(emp.cnpj)}`;
   const n = emp.unidadesNaCidade;
-  return `CNPJ da empresa ${esc(emp.cnpj.slice(0, 10))}/…<br><small>Ela tem ${n > 1 ? `${n} unidades` : "outras unidades"} na cidade e não deu para saber qual delas é esta.</small>`;
+  return `CNPJ da empresa ${esc(emp.cnpj.slice(0, 10))}/…${n > 1 ? `<br><small>${n} unidades na cidade</small>` : ""}`;
 }
 
 function cabeca(emp, cat) {
